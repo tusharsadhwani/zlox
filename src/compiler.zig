@@ -4,7 +4,7 @@ const tokenizer = @import("tokenizer.zig");
 const TokenType = tokenizer.TokenType;
 
 pub const Chunk = struct {
-    data: std.ArrayList(usize),
+    data: std.ArrayList(u8),
     constants: std.ArrayList(f32),
 };
 
@@ -13,7 +13,7 @@ const ParseRules = std.AutoHashMap(TokenType, ParseRule);
 
 fn createChunk(al: std.mem.Allocator) !*Chunk {
     var chunk = try al.create(Chunk);
-    chunk.data = std.ArrayList(usize).init(al);
+    chunk.data = std.ArrayList(u8).init(al);
     chunk.constants = std.ArrayList(f32).init(al);
     return chunk;
 }
@@ -76,6 +76,8 @@ pub fn compile(al: std.mem.Allocator, tokens: []tokenizer.Token, source: []u8) !
     };
 
     try expression(&parser);
+    try consume(&parser, TokenType.EOF);
+    try emit_byte(&parser, @intFromEnum(OpCode.RETURN));
     return chunk;
 }
 
@@ -110,6 +112,12 @@ fn previous_token(parser: *Parser) *tokenizer.Token {
 fn read_token(parser: *Parser) *tokenizer.Token {
     advance(parser);
     return previous_token(parser);
+}
+
+fn consume(parser: *Parser, token_type: TokenType) !void {
+    if (peek(parser).type != token_type) {
+        return error.UnexpectedToken;
+    }
 }
 
 fn expression(parser: *Parser) !void {
@@ -166,7 +174,7 @@ fn number(parser: *Parser) !void {
     try emit_constant(parser, num);
 }
 
-const OpCode = enum(u8) {
+pub const OpCode = enum(u8) {
     CONSTANT,
     ADD,
     SUBTRACT,
@@ -191,7 +199,7 @@ fn add_constant(parser: *Parser, constant: f32) !u8 {
     if (constants.items.len >= 256) {
         return error.TooManyConstants;
     }
-    return @intCast(constants.items.len);
+    return @intCast(constants.items.len - 1);
 }
 
 fn emit_constant(parser: *Parser, value: f32) !void {
