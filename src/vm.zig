@@ -21,6 +21,7 @@ pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) !void {
         .stack = std.ArrayList(f32).init(al),
         .ip = chunk.data.items.ptr,
     };
+    defer vm.stack.deinit();
 
     while (true) {
         const x = next_byte(&vm);

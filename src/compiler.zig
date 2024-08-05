@@ -11,22 +11,25 @@ pub const Chunk = struct {
 const Parser = struct { current: usize, tokens: []tokenizer.Token, source: []u8, chunk: *Chunk, parse_rules: ParseRules };
 const ParseRules = std.AutoHashMap(TokenType, ParseRule);
 
-fn createChunk(al: std.mem.Allocator) !*Chunk {
+fn create_chunk(al: std.mem.Allocator) !*Chunk {
     var chunk = try al.create(Chunk);
     chunk.data = std.ArrayList(u8).init(al);
     chunk.constants = std.ArrayList(f32).init(al);
     return chunk;
 }
 
-pub fn freeChunk(chunk: *Chunk) void {
+pub fn free_chunk(chunk: *Chunk) void {
     chunk.data.clearAndFree();
     chunk.constants.clearAndFree();
+    chunk.data.allocator.destroy(chunk);
 }
 
 pub fn compile(al: std.mem.Allocator, tokens: []tokenizer.Token, source: []u8) !*Chunk {
-    const chunk = try createChunk(al);
+    const chunk = try create_chunk(al);
 
     var parseRules = ParseRules.init(al);
+    defer parseRules.deinit();
+
     try parseRules.put(
         TokenType.PLUS,
         ParseRule{
