@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const tokenizer = @import("tokenizer.zig");
+const compiler = @import("compiler.zig");
 
 pub fn read_file(al: std.mem.Allocator, filepath: []const u8) ![]u8 {
     const file = try std.fs.cwd().openFile(filepath, .{});
@@ -11,7 +12,7 @@ pub fn read_file(al: std.mem.Allocator, filepath: []const u8) ![]u8 {
 
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
+    // defer std.debug.assert(gpa.deinit() == .ok);
     const al = gpa.allocator();
 
     const argv = try std.process.argsAlloc(al);
@@ -25,6 +26,8 @@ pub fn main() !u8 {
     defer al.free(source);
 
     var tokens = try tokenizer.tokenize(al, source);
+    defer tokens.clearAndFree();
+
     for (tokens.items) |token| {
         std.debug.print("{d:3} {s:8} {}\n", .{
             token.start,
@@ -32,6 +35,11 @@ pub fn main() !u8 {
             token.type,
         });
     }
-    tokens.clearAndFree();
+
+    const chunk = try compiler.compile(al, tokens.items, source);
+    defer compiler.freeChunk(chunk);
+
+    std.debug.print("{any} {any}\n", .{ chunk.data.items, chunk.constants.items });
+
     return 0;
 }

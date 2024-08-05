@@ -1,16 +1,17 @@
 const std = @import("std");
 
-const TokenType = enum {
+pub const TokenType = enum {
     UNKNOWN,
     PLUS,
     MINUS,
-    MULTIPLY,
-    DIVIDE,
+    STAR,
+    SLASH,
     DOT,
     NUMBER,
+    EOF,
 };
 
-const Token = struct {
+pub const Token = struct {
     type: TokenType,
     start: usize,
     len: usize,
@@ -53,8 +54,8 @@ pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
         const token = switch (char) {
             '+' => Token{ .type = TokenType.PLUS, .start = index, .len = 1 },
             '-' => Token{ .type = TokenType.MINUS, .start = index, .len = 1 },
-            '*' => Token{ .type = TokenType.MULTIPLY, .start = index, .len = 1 },
-            '/' => Token{ .type = TokenType.DIVIDE, .start = index, .len = 1 },
+            '*' => Token{ .type = TokenType.STAR, .start = index, .len = 1 },
+            '/' => Token{ .type = TokenType.SLASH, .start = index, .len = 1 },
             '.' => Token{ .type = TokenType.DOT, .start = index, .len = 1 },
             '0'...'9' => tokenize_number(source, index),
             else => Token{ .type = TokenType.UNKNOWN, .start = index, .len = 1 },
@@ -63,5 +64,6 @@ pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
         index = index + token.len;
     }
 
+    try tokens.append(Token{ .type = TokenType.EOF, .start = source.len, .len = 0 });
     return tokens;
 }
