@@ -23,20 +23,20 @@ fn next_byte(vm: *VM) u8 {
 }
 
 fn unary_number_check(vm: *VM) !void {
-    if (vm.peek(0).type != .NUMBER) {
+    if (vm.peek(0) != .NUMBER) {
         return error.RuntimeError;
     }
 }
 fn binary_number_check(vm: *VM) !void {
-    if (vm.peek(0).type != .NUMBER or vm.peek(1).type != .NUMBER) {
+    if (vm.peek(0) != .NUMBER or vm.peek(1) != .NUMBER) {
         return error.RuntimeError;
     }
 }
 
 pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]const u8 {
-    return try switch (constant.type) {
-        LoxType.NUMBER => std.fmt.allocPrint(al, "{d}", .{constant.as.number}),
-        LoxType.BOOLEAN => std.fmt.allocPrint(al, "{}", .{constant.as.boolean}),
+    return try switch (constant) {
+        LoxType.NUMBER => std.fmt.allocPrint(al, "{d}", .{constant.NUMBER}),
+        LoxType.BOOLEAN => std.fmt.allocPrint(al, "{}", .{constant.BOOLEAN}),
         LoxType.NIL => "nil",
     };
 }
@@ -61,98 +61,58 @@ pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) !void {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{
-                    .type = .NUMBER,
-                    .as = LoxValue{
-                        .number = a.as.number + b.as.number,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER + b.NUMBER });
             },
             OpCode.SUBTRACT => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{
-                    .type = .NUMBER,
-                    .as = LoxValue{
-                        .number = a.as.number - b.as.number,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER - b.NUMBER });
             },
             OpCode.MULTIPLY => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{
-                    .type = .NUMBER,
-                    .as = LoxValue{
-                        .number = a.as.number * b.as.number,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER * b.NUMBER });
             },
             OpCode.DIVIDE => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{
-                    .type = .NUMBER,
-                    .as = LoxValue{
-                        .number = a.as.number / b.as.number,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER / b.NUMBER });
             },
             OpCode.NEGATE => {
                 try unary_number_check(&vm);
                 const number = vm.stack.pop();
-                try vm.stack.append(LoxConstant{
-                    .type = .NUMBER,
-                    .as = LoxValue{
-                        .number = -number.as.number,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .NUMBER = -number.NUMBER });
             },
             OpCode.GREATER_THAN => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{
-                    .type = .BOOLEAN,
-                    .as = LoxValue{
-                        .boolean = a.as.number > b.as.number,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .BOOLEAN = a.NUMBER > b.NUMBER });
             },
             OpCode.LESS_THAN => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{
-                    .type = .BOOLEAN,
-                    .as = LoxValue{
-                        .boolean = a.as.number < b.as.number,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .BOOLEAN = a.NUMBER < b.NUMBER });
             },
             OpCode.EQUALS => {
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
 
                 var equal = true;
-                if (a.type != b.type) {
+                if (@intFromEnum(a) != @intFromEnum(b)) {
                     equal = false;
                 } else {
-                    equal = switch (a.type) {
-                        LoxType.NUMBER => a.as.number == b.as.number,
-                        LoxType.BOOLEAN => a.as.boolean == b.as.boolean,
+                    equal = switch (a) {
+                        LoxType.NUMBER => a.NUMBER == b.NUMBER,
+                        LoxType.BOOLEAN => a.BOOLEAN == b.BOOLEAN,
                         LoxType.NIL => true,
                     };
                 }
-                try vm.stack.append(LoxConstant{
-                    .type = .BOOLEAN,
-                    .as = LoxValue{
-                        .boolean = equal,
-                    },
-                });
+                try vm.stack.append(LoxConstant{ .BOOLEAN = equal });
             },
             OpCode.RETURN => {
                 const formatted_constant = try format_constant(al, vm.stack.pop());

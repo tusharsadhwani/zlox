@@ -8,14 +8,10 @@ pub const LoxType = enum(u8) {
     BOOLEAN,
     NIL,
 };
-pub const LoxValue = packed union {
-    number: f32,
-    boolean: bool,
-};
-
-pub const LoxConstant = struct {
-    type: LoxType,
-    as: LoxValue,
+pub const LoxConstant = union(LoxType) {
+    NUMBER: f32,
+    BOOLEAN: bool,
+    NIL: u0,
 };
 pub const ConstantStack = std.ArrayList(LoxConstant);
 
@@ -248,32 +244,19 @@ fn binary(parser: *Parser) !void {
 fn number(parser: *Parser) !void {
     const num_token = previous_token(parser);
     const num = try std.fmt.parseFloat(
-        std.meta.FieldType(LoxValue, .number),
+        std.meta.FieldType(LoxConstant, .NUMBER),
         parser.source[num_token.start .. num_token.start + num_token.len],
     );
-    try emit_constant(parser, LoxConstant{
-        .type = .NUMBER,
-        .as = LoxValue{
-            .number = num,
-        },
-    });
+    try emit_constant(parser, LoxConstant{ .NUMBER = num });
 }
 fn boolean(parser: *Parser) !void {
     const num_token = previous_token(parser);
     try emit_constant(parser, LoxConstant{
-        .type = .BOOLEAN,
-        .as = LoxValue{
-            .boolean = if (num_token.type == TokenType.TRUE) true else false,
-        },
+        .BOOLEAN = if (num_token.type == TokenType.TRUE) true else false,
     });
 }
 fn nil(parser: *Parser) !void {
-    try emit_constant(parser, LoxConstant{
-        .type = .NIL,
-        .as = LoxValue{
-            .number = 0,
-        },
-    });
+    try emit_constant(parser, LoxConstant{ .NIL = 0 });
 }
 
 pub const OpCode = enum(u8) {
