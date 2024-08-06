@@ -58,7 +58,25 @@ pub fn run(al: std.mem.Allocator, filepath: []const u8, debug: bool) !u8 {
     defer compiler.free_chunk(chunk);
 
     if (debug) {
-        std.debug.print("{any} {any}\n", .{ chunk.data.items, chunk.constants.items });
+        var index: usize = 0;
+
+        while (index < chunk.data.items.len) {
+            const opcode: compiler.OpCode = @enumFromInt(chunk.data.items[index]);
+            switch (opcode) {
+                compiler.OpCode.CONSTANT => {
+                    const constant_index = chunk.data.items[index + 1];
+                    const constant = chunk.constants.items[constant_index];
+                    const formatted_constant = try vm.format_constant(al, constant);
+                    defer al.free(formatted_constant);
+                    std.debug.print("{s:<15} {s}\n", .{ @tagName(opcode), formatted_constant });
+                    index += 2;
+                },
+                else => {
+                    std.debug.print("{s}\n", .{@tagName(opcode)});
+                    index += 1;
+                },
+            }
+        }
     }
 
     try vm.interpret(al, chunk);
