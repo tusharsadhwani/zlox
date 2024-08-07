@@ -11,42 +11,13 @@ pub fn read_file(al: std.mem.Allocator, filepath: []const u8) ![]u8 {
     return contents;
 }
 
-pub fn main() !u8 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
-    const al = gpa.allocator();
-
-    const argv = try std.process.argsAlloc(al);
-    defer std.process.argsFree(al, argv);
-
-    if (argv.len == 1) {
-        std.debug.print("Usage: zlox <filename.lox>\n", .{});
-        return 1;
-    }
-    const filepath = argv[1];
-
-    var debug = false;
-    if (argv.len > 2) {
-        for (argv[2..]) |arg| {
-            if (std.mem.eql(u8, arg, "--debug")) {
-                debug = true;
-            }
-        }
-    }
-
-    return run(al, filepath, debug);
-}
-
-pub fn run(al: std.mem.Allocator, filepath: []const u8, debug: bool) !u8 {
-    const source = try read_file(al, filepath);
-    defer al.free(source);
-
+pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
     var tokens = try tokenizer.tokenize(al, source);
     defer tokens.clearAndFree();
 
     if (debug) {
         for (tokens.items) |token| {
-            std.debug.print("{d:3} {s:8} {}\n", .{
+            std.debug.print("{d:3} {s:15} {}\n", .{
                 token.start,
                 source[token.start .. token.start + token.len],
                 token.type,
@@ -79,12 +50,64 @@ pub fn run(al: std.mem.Allocator, filepath: []const u8, debug: bool) !u8 {
         }
     }
 
-    try vm.interpret(al, chunk);
-    return 0;
+    return try vm.interpret(al, chunk);
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const al = gpa.allocator();
+
+    const argv = try std.process.argsAlloc(al);
+    defer std.process.argsFree(al, argv);
+
+    if (argv.len == 1) {
+        std.debug.print("Usage: zlox <filename.lox>\n", .{});
+        std.process.exit(1);
+    }
+    const filepath = argv[1];
+
+    var debug = false;
+    if (argv.len > 2) {
+        for (argv[2..]) |arg| {
+            if (std.mem.eql(u8, arg, "--debug")) {
+                debug = true;
+            }
+        }
+    }
+
+    const source = try read_file(al, filepath);
+    defer al.free(source);
+
+    const output = try run(al, source, debug);
+    defer al.free(output);
+
+    const stdout = std.io.getStdOut();
+    _ = try stdout.write(output);
+    _ = try stdout.write("\n");
 }
 
 test {
     const al = std.testing.allocator;
-    const retcode = try run(al, "./examples/math.lox", true);
-    try std.testing.expect(retcode == 0);
+    const source = try std.fmt.allocPrint(al, "-1.2 + 3 * 5 < 3 == false", .{});
+    defer al.free(source);
+    const result = try run(al, source, true);
+    defer al.free(result);
+    try std.testing.expectEqualStrings(result, "true");
+}
+test {
+    const al = std.testing.allocator;
+    const source = try std.fmt.allocPrint(al, "-1.2 + 3 * 5 < 3 == \"foobar\"", .{});
+    defer al.free(source);
+    const result = try run(al, source, true);
+    defer al.free(result);
+    try std.testing.expectEqualStrings(result, "false");
+}
+test {
+    const al = std.testing.allocator;
+    const source = try std.fmt.allocPrint(al, "\"foobar\" == \"foobar\"", .{});
+    defer al.free(source);
+    const result = try run(al, source, true);
+    defer al.free(result);
+    try std.testing.expectEqualStrings(result, "true");
 }

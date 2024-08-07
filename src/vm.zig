@@ -4,6 +4,8 @@ const compiler = @import("compiler.zig");
 const LoxConstant = compiler.LoxConstant;
 const LoxType = compiler.LoxType;
 const LoxValue = compiler.LoxValue;
+const LoxObject = compiler.LoxObject;
+const LoxString = compiler.LoxString;
 const OpCode = compiler.OpCode;
 
 const VM = struct {
@@ -33,15 +35,25 @@ fn binary_number_check(vm: *VM) !void {
     }
 }
 
-pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]const u8 {
+pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]u8 {
     return try switch (constant) {
         LoxType.NUMBER => std.fmt.allocPrint(al, "{d}", .{constant.NUMBER}),
         LoxType.BOOLEAN => std.fmt.allocPrint(al, "{}", .{constant.BOOLEAN}),
-        LoxType.NIL => "nil",
+        LoxType.NIL => std.fmt.allocPrint(al, "nil", .{}),
+        LoxType.OBJECT => switch (constant.OBJECT.type) {
+            LoxObject.Type.STRING => {
+                const formatted_constant = try std.fmt.allocPrint(
+                    al,
+                    "{s}",
+                    .{constant.OBJECT.as_string().string},
+                );
+                return formatted_constant;
+            },
+        },
     };
 }
 
-pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) !void {
+pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) ![]u8 {
     var vm = VM{
         .chunk = chunk,
         .stack = compiler.ConstantStack.init(al),
@@ -101,7 +113,6 @@ pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) !void {
             OpCode.EQUALS => {
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-
                 var equal = true;
                 if (@intFromEnum(a) != @intFromEnum(b)) {
                     equal = false;
@@ -110,18 +121,30 @@ pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) !void {
                         LoxType.NUMBER => a.NUMBER == b.NUMBER,
                         LoxType.BOOLEAN => a.BOOLEAN == b.BOOLEAN,
                         LoxType.NIL => true,
+                        LoxType.OBJECT => switch (a.OBJECT.type) {
+                            LoxObject.Type.STRING => std.mem.eql(u8, a.OBJECT.as_string().string, b.OBJECT.as_string().string),
+                        },
                     };
                 }
+                if (a == .OBJECT) {
+                    a.OBJECT.free(al);
+                }
+                if (b == .OBJECT) {
+                    b.OBJECT.free(al);
+                }
+
                 try vm.stack.append(LoxConstant{ .BOOLEAN = equal });
             },
             OpCode.RETURN => {
-                const formatted_constant = try format_constant(al, vm.stack.pop());
-                defer al.free(formatted_constant);
-                std.debug.print("{s}\n", .{formatted_constant});
+                const constant = vm.stack.pop();
+                if (constant == .OBJECT) {
+                    defer constant.OBJECT.free(al);
+                }
+                const formatted_constant = try format_constant(al, constant);
                 if (vm.stack.items.len != 0) {
                     return error.StackNotEmpty;
                 }
-                break;
+                return formatted_constant;
             },
         }
     }

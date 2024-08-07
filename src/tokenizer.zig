@@ -13,6 +13,7 @@ pub const TokenType = enum {
     LESS_THAN,
     NUMBER,
     IDENTIFIER,
+    STRING,
     TRUE,
     FALSE,
     NIL,
@@ -63,6 +64,16 @@ fn tokenize_identifier(source: []u8, start: usize) Token {
     return Token{ .type = TokenType.IDENTIFIER, .start = start, .len = source.len - start };
 }
 
+fn tokenize_string(source: []u8, start: usize) !Token {
+    for (start + 1..source.len) |current| {
+        const char = source[current];
+        if (char == '"') {
+            return Token{ .type = TokenType.STRING, .start = start, .len = current - start + 1 };
+        }
+    }
+    return error.UnterminatedString;
+}
+
 pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
     var tokens = std.ArrayList(Token).init(al);
 
@@ -89,6 +100,7 @@ pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
             '.' => Token{ .type = TokenType.DOT, .start = index, .len = 1 },
             '0'...'9' => tokenize_number(source, index),
             'A'...'Z', 'a'...'z' => tokenize_identifier(source, index),
+            '"' => try tokenize_string(source, index),
             else => Token{ .type = TokenType.UNKNOWN, .start = index, .len = 1 },
         };
         try tokens.append(token);

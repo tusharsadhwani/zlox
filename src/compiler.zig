@@ -3,24 +3,63 @@ const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
 const TokenType = tokenizer.TokenType;
 
-pub const LoxType = enum(u8) {
+pub const LoxType = enum {
     NUMBER,
     BOOLEAN,
     NIL,
+    OBJECT,
 };
 pub const LoxConstant = union(LoxType) {
     NUMBER: f32,
     BOOLEAN: bool,
     NIL: u0,
+    OBJECT: *LoxObject,
 };
 pub const ConstantStack = std.ArrayList(LoxConstant);
+
+pub const LoxObject = struct {
+    type: Type,
+
+    pub const Type = enum { STRING };
+
+    pub fn allocate(al: std.mem.Allocator, comptime T: type, object_type: Type) !*LoxObject {
+        const ptr = try al.create(T);
+
+        ptr.object = LoxObject{ .type = object_type };
+        return &ptr.object;
+    }
+
+    pub fn free(self: *LoxObject, al: std.mem.Allocator) void {
+        switch (self.type) {
+            .STRING => {
+                al.free(self.as_string().string);
+                al.destroy(self.as_string());
+            },
+        }
+    }
+
+    pub fn as_string(self: *LoxObject) *LoxString {
+        return @alignCast(@fieldParentPtr("object", self));
+    }
+};
+pub const LoxString = struct {
+    object: LoxObject,
+    string: []u8,
+};
 
 pub const Chunk = struct {
     data: std.ArrayList(u8),
     constants: ConstantStack,
 };
 
-const Parser = struct { current: usize, tokens: []tokenizer.Token, source: []u8, chunk: *Chunk, parse_rules: ParseRules };
+const Parser = struct {
+    current: usize,
+    tokens: []tokenizer.Token,
+    source: []u8,
+    chunk: *Chunk,
+    parse_rules: ParseRules,
+    allocator: std.mem.Allocator,
+};
 const ParseRules = std.AutoHashMap(TokenType, ParseRule);
 
 fn create_chunk(al: std.mem.Allocator) !*Chunk {
@@ -107,6 +146,14 @@ pub fn compile(al: std.mem.Allocator, tokens: []tokenizer.Token, source: []u8) !
         },
     );
     try parseRules.put(
+        TokenType.STRING,
+        ParseRule{
+            .prefix = string,
+            .infix = null,
+            .precedence = Precedence.NONE,
+        },
+    );
+    try parseRules.put(
         TokenType.TRUE,
         ParseRule{
             .prefix = boolean,
@@ -144,6 +191,7 @@ pub fn compile(al: std.mem.Allocator, tokens: []tokenizer.Token, source: []u8) !
         .source = source,
         .chunk = chunk,
         .parse_rules = parseRules,
+        .allocator = al,
     };
 
     try expression(&parser);
@@ -248,6 +296,16 @@ fn number(parser: *Parser) !void {
         parser.source[num_token.start .. num_token.start + num_token.len],
     );
     try emit_constant(parser, LoxConstant{ .NUMBER = num });
+}
+fn string(parser: *Parser) !void {
+    const string_token = previous_token(parser);
+    const string_object = try LoxObject.allocate(parser.allocator, LoxString, .STRING);
+    const lox_string: *LoxString = @alignCast(@fieldParentPtr("object", string_object));
+    lox_string.* = LoxString{
+        .object = string_object.*,
+        .string = try parser.allocator.dupe(u8, parser.source[string_token.start .. string_token.start + string_token.len]),
+    };
+    try emit_constant(parser, LoxConstant{ .OBJECT = string_object });
 }
 fn boolean(parser: *Parser) !void {
     const num_token = previous_token(parser);
