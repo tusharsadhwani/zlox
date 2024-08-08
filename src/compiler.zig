@@ -22,10 +22,10 @@ pub const LoxObject = struct {
 
     pub const Type = enum { STRING };
 
-    pub fn allocate(al: std.mem.Allocator, comptime T: type, object_type: Type) !*LoxObject {
+    pub fn allocate(al: std.mem.Allocator, object_store: *ObjectStore, comptime T: type, object_type: Type) !*LoxObject {
         const ptr = try al.create(T);
-
         ptr.object = LoxObject{ .type = object_type };
+        try object_store.append(&ptr.object);
         return &ptr.object;
     }
 
@@ -42,6 +42,32 @@ pub const LoxObject = struct {
         return @alignCast(@fieldParentPtr("object", self));
     }
 };
+
+pub const ObjectStore = struct {
+    objects: std.ArrayList(*LoxObject),
+    al: std.mem.Allocator,
+
+    pub fn init(al: std.mem.Allocator) !*ObjectStore {
+        const objects = std.ArrayList(*LoxObject).init(al);
+        var store = try al.create(ObjectStore);
+        store.objects = objects;
+        store.al = al;
+        return store;
+    }
+
+    pub fn free(self: *ObjectStore) void {
+        for (self.objects.items) |object| {
+            object.free(self.al);
+        }
+        self.objects.deinit();
+        self.al.destroy(self);
+    }
+
+    pub fn append(self: *ObjectStore, object: *LoxObject) !void {
+        try self.objects.append(object);
+    }
+};
+
 pub const LoxString = struct {
     object: LoxObject,
     string: []u8,
@@ -58,6 +84,7 @@ const Parser = struct {
     source: []u8,
     chunk: *Chunk,
     parse_rules: ParseRules,
+    object_store: *ObjectStore,
     allocator: std.mem.Allocator,
 };
 const ParseRules = std.AutoHashMap(TokenType, ParseRule);
@@ -70,12 +97,12 @@ fn create_chunk(al: std.mem.Allocator) !*Chunk {
 }
 
 pub fn free_chunk(chunk: *Chunk) void {
-    chunk.data.clearAndFree();
-    chunk.constants.clearAndFree();
+    chunk.data.deinit();
+    chunk.constants.deinit();
     chunk.data.allocator.destroy(chunk);
 }
 
-pub fn compile(al: std.mem.Allocator, tokens: []tokenizer.Token, source: []u8) !*Chunk {
+pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []tokenizer.Token, source: []u8) !*Chunk {
     const chunk = try create_chunk(al);
 
     var parseRules = ParseRules.init(al);
@@ -192,6 +219,7 @@ pub fn compile(al: std.mem.Allocator, tokens: []tokenizer.Token, source: []u8) !
         .chunk = chunk,
         .parse_rules = parseRules,
         .allocator = al,
+        .object_store = object_store,
     };
 
     try expression(&parser);
@@ -299,7 +327,7 @@ fn number(parser: *Parser) !void {
 }
 fn string(parser: *Parser) !void {
     const string_token = previous_token(parser);
-    const string_object = try LoxObject.allocate(parser.allocator, LoxString, .STRING);
+    const string_object = try LoxObject.allocate(parser.allocator, parser.object_store, LoxString, .STRING);
     const lox_string: *LoxString = @alignCast(@fieldParentPtr("object", string_object));
     lox_string.* = LoxString{
         .object = string_object.*,

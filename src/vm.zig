@@ -12,6 +12,8 @@ const VM = struct {
     chunk: *compiler.Chunk,
     stack: compiler.ConstantStack,
     ip: [*]u8,
+    allocator: std.mem.Allocator,
+    object_store: *compiler.ObjectStore,
 
     fn peek(self: *VM, index: usize) LoxConstant {
         return self.stack.items[self.stack.items.len - 1 - index];
@@ -60,20 +62,20 @@ pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]u8 {
     };
 }
 
-fn concatenate_strings(al: std.mem.Allocator, a: *LoxString, b: *LoxString) !*LoxObject {
-    var concatenated_object = try LoxObject.allocate(al, LoxString, .STRING);
-    const concatenated_string = try std.mem.concat(al, u8, &.{ a.string, b.string });
+fn concatenate_strings(vm: *VM, a: *LoxString, b: *LoxString) !*LoxObject {
+    var concatenated_object = try LoxObject.allocate(vm.allocator, vm.object_store, LoxString, .STRING);
+    const concatenated_string = try std.mem.concat(vm.allocator, u8, &.{ a.string, b.string });
     concatenated_object.as_string().string = concatenated_string;
-    a.object.free(al);
-    b.object.free(al);
     return concatenated_object;
 }
 
-pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) ![]u8 {
+pub fn interpret(al: std.mem.Allocator, object_store: *compiler.ObjectStore, chunk: *compiler.Chunk) ![]u8 {
     var vm = VM{
         .chunk = chunk,
         .stack = compiler.ConstantStack.init(al),
         .ip = chunk.data.items.ptr,
+        .allocator = al,
+        .object_store = object_store,
     };
     defer vm.stack.deinit();
 
@@ -93,7 +95,7 @@ pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) ![]u8 {
                     LoxType.NUMBER => LoxConstant{ .NUMBER = a.NUMBER + b.NUMBER },
                     LoxType.OBJECT => switch (a.OBJECT.type) {
                         LoxObject.Type.STRING => LoxConstant{
-                            .OBJECT = try concatenate_strings(al, a.OBJECT.as_string(), b.OBJECT.as_string()),
+                            .OBJECT = try concatenate_strings(&vm, a.OBJECT.as_string(), b.OBJECT.as_string()),
                         },
                     },
                     else => return error.RuntimeError,
@@ -151,20 +153,10 @@ pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) ![]u8 {
                         },
                     };
                 }
-                if (a == .OBJECT) {
-                    a.OBJECT.free(al);
-                }
-                if (b == .OBJECT) {
-                    b.OBJECT.free(al);
-                }
-
                 try vm.stack.append(LoxConstant{ .BOOLEAN = equal });
             },
             OpCode.RETURN => {
                 const constant = vm.stack.pop();
-                if (constant == .OBJECT) {
-                    defer constant.OBJECT.free(al);
-                }
                 const formatted_constant = try format_constant(al, constant);
                 if (vm.stack.items.len != 0) {
                     return error.StackNotEmpty;

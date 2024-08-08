@@ -13,7 +13,7 @@ pub fn read_file(al: std.mem.Allocator, filepath: []const u8) ![]u8 {
 
 pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
     var tokens = try tokenizer.tokenize(al, source);
-    defer tokens.clearAndFree();
+    defer tokens.deinit();
 
     if (debug) {
         for (tokens.items) |token| {
@@ -25,7 +25,10 @@ pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
         }
     }
 
-    const chunk = try compiler.compile(al, tokens.items, source);
+    var object_store = try compiler.ObjectStore.init(al);
+    defer object_store.free();
+
+    const chunk = try compiler.compile(al, object_store, tokens.items, source);
     defer compiler.free_chunk(chunk);
 
     if (debug) {
@@ -50,7 +53,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
         }
     }
 
-    return try vm.interpret(al, chunk);
+    return try vm.interpret(al, object_store, chunk);
 }
 
 pub fn main() !void {
