@@ -303,7 +303,9 @@ fn string(parser: *Parser) !void {
     const lox_string: *LoxString = @alignCast(@fieldParentPtr("object", string_object));
     lox_string.* = LoxString{
         .object = string_object.*,
-        .string = try parser.allocator.dupe(u8, parser.source[string_token.start .. string_token.start + string_token.len]),
+        // +1 and -1 to remove quotes.
+        // TODO This doesn't handle any un-escaping
+        .string = try parser.allocator.dupe(u8, parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1]),
     };
     try emit_constant(parser, LoxConstant{ .OBJECT = string_object });
 }

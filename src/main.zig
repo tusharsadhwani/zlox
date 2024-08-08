@@ -105,7 +105,7 @@ test {
 }
 test {
     const al = std.testing.allocator;
-    const source = try std.fmt.allocPrint(al, "\"foobar\" == \"foobar\"", .{});
+    const source = try std.fmt.allocPrint(al, "\"foo\" + \"bar\" == \"foobar\"", .{});
     defer al.free(source);
     const result = try run(al, source, true);
     defer al.free(result);

@@ -34,6 +34,13 @@ fn binary_number_check(vm: *VM) !void {
         return error.RuntimeError;
     }
 }
+fn binary_check(vm: *VM) !void {
+    const b = vm.peek(0);
+    const a = vm.peek(1);
+    if (@intFromEnum(a) != @intFromEnum(b)) {
+        return error.RuntimeError;
+    }
+}
 
 pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]u8 {
     return try switch (constant) {
@@ -53,6 +60,15 @@ pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]u8 {
     };
 }
 
+fn concatenate_strings(al: std.mem.Allocator, a: *LoxString, b: *LoxString) !*LoxObject {
+    var concatenated_object = try LoxObject.allocate(al, LoxString, .STRING);
+    const concatenated_string = try std.mem.concat(al, u8, &.{ a.string, b.string });
+    concatenated_object.as_string().string = concatenated_string;
+    a.object.free(al);
+    b.object.free(al);
+    return concatenated_object;
+}
+
 pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) ![]u8 {
     var vm = VM{
         .chunk = chunk,
@@ -70,10 +86,19 @@ pub fn interpret(al: std.mem.Allocator, chunk: *compiler.Chunk) ![]u8 {
                 try vm.stack.append(vm.chunk.constants.items[constant_index]);
             },
             OpCode.ADD => {
-                try binary_number_check(&vm);
+                try binary_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER + b.NUMBER });
+                const result = switch (a) {
+                    LoxType.NUMBER => LoxConstant{ .NUMBER = a.NUMBER + b.NUMBER },
+                    LoxType.OBJECT => switch (a.OBJECT.type) {
+                        LoxObject.Type.STRING => LoxConstant{
+                            .OBJECT = try concatenate_strings(al, a.OBJECT.as_string(), b.OBJECT.as_string()),
+                        },
+                    },
+                    else => return error.RuntimeError,
+                };
+                try vm.stack.append(result);
             },
             OpCode.SUBTRACT => {
                 try binary_number_check(&vm);
