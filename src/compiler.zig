@@ -33,6 +33,7 @@ pub const LoxObject = struct {
         const ptr = try ctx.al.create(LoxString);
         ptr.object = LoxObject{ .type = .STRING };
         ptr.string = string;
+        try ctx.intern_string(ptr);
         try ctx.add_object(&ptr.object);
         return &ptr.object;
     }
@@ -40,7 +41,7 @@ pub const LoxObject = struct {
     pub fn free(self: *LoxObject, al: std.mem.Allocator) void {
         switch (self.type) {
             .STRING => {
-                al.free(self.as_string().string);
+                // Strings are interned, no need to free `.string` here.
                 al.destroy(self.as_string());
             },
         }
@@ -51,14 +52,78 @@ pub const LoxObject = struct {
     }
 };
 
+pub const HashTable = struct {
+    al: std.mem.Allocator,
+    entries: []?HashTableEntry,
+    length: u32,
+
+    pub fn init(al: std.mem.Allocator) !*HashTable {
+        var table = try al.create(HashTable);
+        table.al = al;
+        table.length = 32;
+        table.entries = try al.alloc(?HashTableEntry, table.length);
+        for (0..table.entries.len) |index| {
+            table.entries[index] = null;
+        }
+        return table;
+    }
+
+    pub fn deinit(self: *HashTable) void {
+        for (0..self.entries.len) |index| {
+            const entry = self.entries[index];
+            if (entry != null) {
+                self.al.destroy(&entry.?.key.object);
+            }
+        }
+        self.al.free(self.entries);
+        self.al.destroy(self);
+    }
+
+    pub fn insert(self: *HashTable, key: *LoxString, value: LoxConstant) !void {
+        const hash = std.hash.Fnv1a_32.hash(key.string);
+        const index = hash % self.length;
+        if (self.entries[index] != null) {
+            // TODO: collision detection
+            return error.HashCollision;
+        }
+        self.entries[index] = HashTableEntry{
+            .hash = hash,
+            .key = key,
+            .value = value,
+        };
+    }
+
+    pub fn find(self: *HashTable, key: *LoxString) ?u32 {
+        const hash = std.hash.Fnv1a_32.hash(key.string);
+        const index = hash % self.length;
+        const entry = self.entries[index];
+        if (entry == null) {
+            return null;
+        }
+        // TODO: on collision, we need to do linear probling.
+        if (!std.mem.eql(u8, key.string, entry.?.key.string)) {
+            return null;
+        }
+        return index;
+    }
+};
+
+pub const HashTableEntry = struct {
+    hash: u32,
+    key: *LoxString,
+    value: LoxConstant,
+};
+
 pub const GlobalContext = struct {
     al: std.mem.Allocator,
     objects: std.ArrayList(*LoxObject),
+    strings: *HashTable,
 
     pub fn init(al: std.mem.Allocator) !*GlobalContext {
         var store = try al.create(GlobalContext);
         store.al = al;
         store.objects = std.ArrayList(*LoxObject).init(al);
+        store.strings = try HashTable.init(al);
         return store;
     }
 
@@ -67,11 +132,23 @@ pub const GlobalContext = struct {
             object.free(self.al);
         }
         self.objects.deinit();
+        self.strings.deinit();
         self.al.destroy(self);
     }
 
     pub fn add_object(self: *GlobalContext, object: *LoxObject) !void {
         try self.objects.append(object);
+    }
+
+    pub fn intern_string(self: *GlobalContext, string: *LoxString) !void {
+        const index = self.strings.find(string);
+        if (index != null) {
+            const existing_string = self.strings.entries[@intCast(index.?)].?.key;
+            self.al.free(string.string);
+            string.string = existing_string.string;
+            return;
+        }
+        try self.strings.insert(string, LoxConstant{ .BOOLEAN = true });
     }
 };
 
@@ -334,8 +411,8 @@ fn parse_string(parser: *Parser) !void {
     const string_token = previous_token(parser);
     // +1 and -1 to remove quotes.
     // TODO This doesn't handle any un-escaping
-    const string = try parser.ctx.al.dupe(u8, parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1]);
-    const string_object = try LoxObject.allocate_string(parser.ctx, string);
+    const string_slice = parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1];
+    const string_object = try LoxObject.allocate_string(parser.ctx, string_slice);
     try emit_constant(parser, LoxConstant{ .OBJECT = string_object });
 }
 fn parse_boolean(parser: *Parser) !void {

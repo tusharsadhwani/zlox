@@ -147,7 +147,7 @@ pub fn interpret(ctx: *compiler.GlobalContext, chunk: *compiler.Chunk) ![]u8 {
                         LoxType.BOOLEAN => a.BOOLEAN == b.BOOLEAN,
                         LoxType.NIL => true,
                         LoxType.OBJECT => switch (a.OBJECT.type) {
-                            LoxObject.Type.STRING => std.mem.eql(u8, a.OBJECT.as_string().string, b.OBJECT.as_string().string),
+                            LoxObject.Type.STRING => a.OBJECT.as_string().string.ptr == b.OBJECT.as_string().string.ptr,
                         },
                     };
                 }
