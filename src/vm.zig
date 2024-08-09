@@ -13,7 +13,7 @@ const VM = struct {
     stack: compiler.ConstantStack,
     ip: [*]u8,
     allocator: std.mem.Allocator,
-    object_store: *compiler.ObjectStore,
+    ctx: *compiler.GlobalContext,
 
     fn peek(self: *VM, index: usize) LoxConstant {
         return self.stack.items[self.stack.items.len - 1 - index];
@@ -63,19 +63,17 @@ pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]u8 {
 }
 
 fn concatenate_strings(vm: *VM, a: *LoxString, b: *LoxString) !*LoxObject {
-    var concatenated_object = try LoxObject.allocate(vm.allocator, vm.object_store, LoxString, .STRING);
     const concatenated_string = try std.mem.concat(vm.allocator, u8, &.{ a.string, b.string });
-    concatenated_object.as_string().string = concatenated_string;
-    return concatenated_object;
+    return try LoxObject.allocate_string(vm.ctx, concatenated_string);
 }
 
-pub fn interpret(al: std.mem.Allocator, object_store: *compiler.ObjectStore, chunk: *compiler.Chunk) ![]u8 {
+pub fn interpret(ctx: *compiler.GlobalContext, chunk: *compiler.Chunk) ![]u8 {
     var vm = VM{
         .chunk = chunk,
-        .stack = compiler.ConstantStack.init(al),
+        .stack = compiler.ConstantStack.init(ctx.al),
         .ip = chunk.data.items.ptr,
-        .allocator = al,
-        .object_store = object_store,
+        .allocator = ctx.al,
+        .ctx = ctx,
     };
     defer vm.stack.deinit();
 
@@ -157,7 +155,7 @@ pub fn interpret(al: std.mem.Allocator, object_store: *compiler.ObjectStore, chu
             },
             OpCode.RETURN => {
                 const constant = vm.stack.pop();
-                const formatted_constant = try format_constant(al, constant);
+                const formatted_constant = try format_constant(vm.allocator, constant);
                 if (vm.stack.items.len != 0) {
                     return error.StackNotEmpty;
                 }

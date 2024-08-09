@@ -25,10 +25,10 @@ pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
         }
     }
 
-    var object_store = try compiler.ObjectStore.init(al);
-    defer object_store.free();
+    var ctx = try compiler.GlobalContext.init(al);
+    defer ctx.free();
 
-    const chunk = try compiler.compile(al, object_store, tokens.items, source);
+    const chunk = try compiler.compile(ctx, tokens.items, source);
     defer compiler.free_chunk(chunk);
 
     if (debug) {
@@ -53,7 +53,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
         }
     }
 
-    return try vm.interpret(al, object_store, chunk);
+    return try vm.interpret(ctx, chunk);
 }
 
 pub fn main() !void {

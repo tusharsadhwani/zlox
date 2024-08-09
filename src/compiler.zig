@@ -22,10 +22,18 @@ pub const LoxObject = struct {
 
     pub const Type = enum { STRING };
 
-    pub fn allocate(al: std.mem.Allocator, object_store: *ObjectStore, comptime T: type, object_type: Type) !*LoxObject {
-        const ptr = try al.create(T);
+    pub fn allocate(ctx: *GlobalContext, comptime T: type, object_type: Type) !*LoxObject {
+        const ptr = try ctx.al.create(T);
         ptr.object = LoxObject{ .type = object_type };
-        try object_store.append(&ptr.object);
+        try ctx.add_object(&ptr.object);
+        return &ptr.object;
+    }
+
+    pub fn allocate_string(ctx: *GlobalContext, string: []u8) !*LoxObject {
+        const ptr = try ctx.al.create(LoxString);
+        ptr.object = LoxObject{ .type = .STRING };
+        ptr.string = string;
+        try ctx.add_object(&ptr.object);
         return &ptr.object;
     }
 
@@ -43,19 +51,18 @@ pub const LoxObject = struct {
     }
 };
 
-pub const ObjectStore = struct {
-    objects: std.ArrayList(*LoxObject),
+pub const GlobalContext = struct {
     al: std.mem.Allocator,
+    objects: std.ArrayList(*LoxObject),
 
-    pub fn init(al: std.mem.Allocator) !*ObjectStore {
-        const objects = std.ArrayList(*LoxObject).init(al);
-        var store = try al.create(ObjectStore);
-        store.objects = objects;
+    pub fn init(al: std.mem.Allocator) !*GlobalContext {
+        var store = try al.create(GlobalContext);
         store.al = al;
+        store.objects = std.ArrayList(*LoxObject).init(al);
         return store;
     }
 
-    pub fn free(self: *ObjectStore) void {
+    pub fn free(self: *GlobalContext) void {
         for (self.objects.items) |object| {
             object.free(self.al);
         }
@@ -63,7 +70,7 @@ pub const ObjectStore = struct {
         self.al.destroy(self);
     }
 
-    pub fn append(self: *ObjectStore, object: *LoxObject) !void {
+    pub fn add_object(self: *GlobalContext, object: *LoxObject) !void {
         try self.objects.append(object);
     }
 };
@@ -84,8 +91,7 @@ const Parser = struct {
     source: []u8,
     chunk: *Chunk,
     parse_rules: ParseRules,
-    object_store: *ObjectStore,
-    allocator: std.mem.Allocator,
+    ctx: *GlobalContext,
 };
 const ParseRules = std.AutoHashMap(TokenType, ParseRule);
 
@@ -102,25 +108,25 @@ pub fn free_chunk(chunk: *Chunk) void {
     chunk.data.allocator.destroy(chunk);
 }
 
-pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []tokenizer.Token, source: []u8) !*Chunk {
-    const chunk = try create_chunk(al);
+pub fn compile(ctx: *GlobalContext, tokens: []tokenizer.Token, source: []u8) !*Chunk {
+    const chunk = try create_chunk(ctx.al);
 
-    var parseRules = ParseRules.init(al);
+    var parseRules = ParseRules.init(ctx.al);
     defer parseRules.deinit();
 
     try parseRules.put(
         TokenType.PLUS,
         ParseRule{
             .prefix = null,
-            .infix = binary,
+            .infix = parse_binary,
             .precedence = Precedence.TERM,
         },
     );
     try parseRules.put(
         TokenType.MINUS,
         ParseRule{
-            .prefix = unary,
-            .infix = binary,
+            .prefix = parse_unary,
+            .infix = parse_binary,
             .precedence = Precedence.TERM,
         },
     );
@@ -128,7 +134,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
         TokenType.STAR,
         ParseRule{
             .prefix = null,
-            .infix = binary,
+            .infix = parse_binary,
             .precedence = Precedence.FACTOR,
         },
     );
@@ -136,7 +142,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
         TokenType.SLASH,
         ParseRule{
             .prefix = null,
-            .infix = binary,
+            .infix = parse_binary,
             .precedence = Precedence.FACTOR,
         },
     );
@@ -144,7 +150,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
         TokenType.GREATER_THAN,
         ParseRule{
             .prefix = null,
-            .infix = binary,
+            .infix = parse_binary,
             .precedence = Precedence.COMPARISON,
         },
     );
@@ -152,7 +158,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
         TokenType.LESS_THAN,
         ParseRule{
             .prefix = null,
-            .infix = binary,
+            .infix = parse_binary,
             .precedence = Precedence.COMPARISON,
         },
     );
@@ -160,14 +166,14 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
         TokenType.EQUAL_EQUAL,
         ParseRule{
             .prefix = null,
-            .infix = binary,
+            .infix = parse_binary,
             .precedence = Precedence.EQUALITY,
         },
     );
     try parseRules.put(
         TokenType.NUMBER,
         ParseRule{
-            .prefix = number,
+            .prefix = parse_number,
             .infix = null,
             .precedence = Precedence.NONE,
         },
@@ -175,7 +181,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
     try parseRules.put(
         TokenType.STRING,
         ParseRule{
-            .prefix = string,
+            .prefix = parse_string,
             .infix = null,
             .precedence = Precedence.NONE,
         },
@@ -183,7 +189,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
     try parseRules.put(
         TokenType.TRUE,
         ParseRule{
-            .prefix = boolean,
+            .prefix = parse_boolean,
             .infix = null,
             .precedence = Precedence.NONE,
         },
@@ -191,7 +197,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
     try parseRules.put(
         TokenType.FALSE,
         ParseRule{
-            .prefix = boolean,
+            .prefix = parse_boolean,
             .infix = null,
             .precedence = Precedence.NONE,
         },
@@ -199,7 +205,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
     try parseRules.put(
         TokenType.NIL,
         ParseRule{
-            .prefix = nil,
+            .prefix = parse_nil,
             .infix = null,
             .precedence = Precedence.NONE,
         },
@@ -218,8 +224,7 @@ pub fn compile(al: std.mem.Allocator, object_store: *ObjectStore, tokens: []toke
         .source = source,
         .chunk = chunk,
         .parse_rules = parseRules,
-        .allocator = al,
-        .object_store = object_store,
+        .ctx = ctx,
     };
 
     try expression(&parser);
@@ -295,7 +300,7 @@ fn parse_precedence(parser: *Parser, precedence: Precedence) !void {
     }
 }
 
-fn unary(parser: *Parser) !void {
+fn parse_unary(parser: *Parser) !void {
     const operator = previous_token(parser).type;
     try parse_precedence(parser, @enumFromInt(@intFromEnum(parser.parse_rules.get(operator).?.precedence) + 1));
     try switch (operator) {
@@ -303,7 +308,7 @@ fn unary(parser: *Parser) !void {
         else => unreachable,
     };
 }
-fn binary(parser: *Parser) !void {
+fn parse_binary(parser: *Parser) !void {
     const operator = previous_token(parser).type;
     try parse_precedence(parser, @enumFromInt(@intFromEnum(parser.parse_rules.get(operator).?.precedence) + 1));
     try switch (operator) {
@@ -317,33 +322,29 @@ fn binary(parser: *Parser) !void {
         else => unreachable,
     };
 }
-fn number(parser: *Parser) !void {
+fn parse_number(parser: *Parser) !void {
     const num_token = previous_token(parser);
-    const num = try std.fmt.parseFloat(
+    const number = try std.fmt.parseFloat(
         std.meta.FieldType(LoxConstant, .NUMBER),
         parser.source[num_token.start .. num_token.start + num_token.len],
     );
-    try emit_constant(parser, LoxConstant{ .NUMBER = num });
+    try emit_constant(parser, LoxConstant{ .NUMBER = number });
 }
-fn string(parser: *Parser) !void {
+fn parse_string(parser: *Parser) !void {
     const string_token = previous_token(parser);
-    const string_object = try LoxObject.allocate(parser.allocator, parser.object_store, LoxString, .STRING);
-    const lox_string: *LoxString = @alignCast(@fieldParentPtr("object", string_object));
-    lox_string.* = LoxString{
-        .object = string_object.*,
-        // +1 and -1 to remove quotes.
-        // TODO This doesn't handle any un-escaping
-        .string = try parser.allocator.dupe(u8, parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1]),
-    };
+    // +1 and -1 to remove quotes.
+    // TODO This doesn't handle any un-escaping
+    const string = try parser.ctx.al.dupe(u8, parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1]);
+    const string_object = try LoxObject.allocate_string(parser.ctx, string);
     try emit_constant(parser, LoxConstant{ .OBJECT = string_object });
 }
-fn boolean(parser: *Parser) !void {
+fn parse_boolean(parser: *Parser) !void {
     const num_token = previous_token(parser);
     try emit_constant(parser, LoxConstant{
         .BOOLEAN = if (num_token.type == TokenType.TRUE) true else false,
     });
 }
-fn nil(parser: *Parser) !void {
+fn parse_nil(parser: *Parser) !void {
     try emit_constant(parser, LoxConstant{ .NIL = 0 });
 }
 
