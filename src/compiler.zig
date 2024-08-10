@@ -80,10 +80,10 @@ pub const GlobalContext = struct {
     }
 
     pub fn intern_string(self: *GlobalContext, string: *LoxString) !void {
-        const index = self.strings.index(string);
-        if (index != null) {
+        const entry = try self.strings.find_entry(string);
+        if (entry.value != null) {
             // If we have seen this string, deallocate this one replace with the interned one.
-            const existing_string = self.strings.entries[@intCast(index.?)].?.key;
+            const existing_string = entry.key;
             self.al.free(string.string);
             string.string = existing_string.string;
             return;

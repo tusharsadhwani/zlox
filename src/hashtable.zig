@@ -9,18 +9,18 @@ pub const HashTable = struct {
         hash: u32,
         // The table doesn't own the key.
         key: *LoxString,
-        value: LoxConstant,
+        value: ?LoxConstant,
     };
 
     al: std.mem.Allocator,
-    entries: []?Entry,
+    entries: []?*Entry,
     length: u32,
 
     pub fn init(al: std.mem.Allocator) !*HashTable {
         var table = try al.create(HashTable);
         table.al = al;
         table.length = 32;
-        table.entries = try al.alloc(?Entry, table.length);
+        table.entries = try al.alloc(?*Entry, table.length);
         for (0..table.entries.len) |idx| {
             table.entries[idx] = null;
         }
@@ -28,37 +28,43 @@ pub const HashTable = struct {
     }
 
     pub fn deinit(self: *HashTable) void {
+        for (self.entries) |entry| {
+            if (entry != null) {
+                self.al.destroy(entry.?);
+            }
+        }
         self.al.free(self.entries);
         self.al.destroy(self);
     }
 
-    pub fn insert(self: *HashTable, key: *LoxString, value: LoxConstant) !void {
+    pub fn find_entry(self: *HashTable, key: *LoxString) !*Entry {
         const hash = std.hash.Fnv1a_32.hash(key.string);
-        const idx = hash % self.length;
-        if (self.entries[idx] != null) {
-            // TODO: collision detection
-            return error.HashCollision;
+        var idx = hash % self.length;
+
+        while (true) {
+            const entry = self.entries[idx];
+            if (entry != null) {
+                if (!std.mem.eql(u8, entry.?.key.string, key.string)) {
+                    // We have a hash collision. Probe for empty spot linearly.
+                    idx += 1;
+                    continue;
+                }
+                return entry.?;
+            }
+            const new_entry = try self.al.create(Entry);
+            new_entry.hash = hash;
+            new_entry.key = key;
+            new_entry.value = null;
+            self.entries[idx] = new_entry;
+            return new_entry;
         }
-        self.entries[idx] = Entry{
-            .hash = hash,
-            .key = key,
-            .value = value,
-        };
     }
 
-    pub fn index(self: *HashTable, key: *LoxString) ?u32 {
-        const hash = std.hash.Fnv1a_32.hash(key.string);
-        const idx = hash % self.length;
-        const entry = self.entries[idx];
-        if (entry == null) {
-            return null;
-        }
-        // TODO: on collision, we need to do linear probling.
-        if (!std.mem.eql(u8, key.string, entry.?.key.string)) {
-            return null;
-        }
-        return idx;
+    pub fn insert(self: *HashTable, key: *LoxString, value: LoxConstant) !void {
+        var entry = try self.find_entry(key);
+        entry.value = value;
     }
+    // TODO: deletion and tombstones
 };
 
 test "HashTable one insert" {
@@ -78,12 +84,11 @@ test "HashTable one insert" {
     key.string = try std.fmt.allocPrint(al, sample_string, .{});
 
     try table.insert(key, LoxConstant{ .NUMBER = 42 });
-    const key_index = table.index(key).?;
-    const retrieved_key = table.entries[@intCast(key_index)].?;
+    const retrieved_key = try table.find_entry(key);
     try std.testing.expectEqualStrings(sample_string, retrieved_key.key.string);
 }
 
-test "HashTable 10 inserts" {
+test "HashTable 23 inserts" {
     const al = std.testing.allocator;
 
     const table = try HashTable.init(al);
@@ -97,7 +102,7 @@ test "HashTable 10 inserts" {
     };
 
     const template = "foobar {d}";
-    for (0..10) |index| {
+    for (0..23) |index| {
         const inserted_string = try std.fmt.allocPrint(al, template, .{index});
 
         const key = try al.create(LoxString);
@@ -105,8 +110,7 @@ test "HashTable 10 inserts" {
         key.string = inserted_string;
 
         try table.insert(key, LoxConstant{ .NUMBER = 42 });
-        const key_index = table.index(key).?;
-        const retrieved_key = table.entries[@intCast(key_index)].?;
+        const retrieved_key = try table.find_entry(key);
         try std.testing.expectEqualStrings(inserted_string, retrieved_key.key.string);
     }
 }
