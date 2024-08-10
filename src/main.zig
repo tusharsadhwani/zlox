@@ -94,7 +94,7 @@ test {
     const al = std.testing.allocator;
     const source = try std.fmt.allocPrint(al, "-1.2 + 3 * 5 < 3 == false", .{});
     defer al.free(source);
-    const result = try run(al, source, true);
+    const result = try run(al, source, false);
     defer al.free(result);
     try std.testing.expectEqualStrings(result, "true");
 }
@@ -102,7 +102,7 @@ test {
     const al = std.testing.allocator;
     const source = try std.fmt.allocPrint(al, "-1.2 + 3 * 5 < 3 == \"foobar\"", .{});
     defer al.free(source);
-    const result = try run(al, source, true);
+    const result = try run(al, source, false);
     defer al.free(result);
     try std.testing.expectEqualStrings(result, "false");
 }
@@ -110,7 +110,7 @@ test {
     const al = std.testing.allocator;
     const source = try std.fmt.allocPrint(al, "\"foo\" + \"bar\" == \"foobar\"", .{});
     defer al.free(source);
-    const result = try run(al, source, true);
+    const result = try run(al, source, false);
     defer al.free(result);
     try std.testing.expectEqualStrings(result, "true");
 }

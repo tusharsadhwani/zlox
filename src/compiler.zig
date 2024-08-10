@@ -2,6 +2,7 @@ const std = @import("std");
 
 const tokenizer = @import("tokenizer.zig");
 const TokenType = tokenizer.TokenType;
+const HashTable = @import("hashtable.zig").HashTable;
 
 pub const LoxType = enum {
     NUMBER,
@@ -52,68 +53,6 @@ pub const LoxObject = struct {
     }
 };
 
-pub const HashTable = struct {
-    al: std.mem.Allocator,
-    entries: []?HashTableEntry,
-    length: u32,
-
-    pub fn init(al: std.mem.Allocator) !*HashTable {
-        var table = try al.create(HashTable);
-        table.al = al;
-        table.length = 32;
-        table.entries = try al.alloc(?HashTableEntry, table.length);
-        for (0..table.entries.len) |index| {
-            table.entries[index] = null;
-        }
-        return table;
-    }
-
-    pub fn deinit(self: *HashTable) void {
-        for (0..self.entries.len) |index| {
-            const entry = self.entries[index];
-            if (entry != null) {
-                self.al.destroy(&entry.?.key.object);
-            }
-        }
-        self.al.free(self.entries);
-        self.al.destroy(self);
-    }
-
-    pub fn insert(self: *HashTable, key: *LoxString, value: LoxConstant) !void {
-        const hash = std.hash.Fnv1a_32.hash(key.string);
-        const index = hash % self.length;
-        if (self.entries[index] != null) {
-            // TODO: collision detection
-            return error.HashCollision;
-        }
-        self.entries[index] = HashTableEntry{
-            .hash = hash,
-            .key = key,
-            .value = value,
-        };
-    }
-
-    pub fn find(self: *HashTable, key: *LoxString) ?u32 {
-        const hash = std.hash.Fnv1a_32.hash(key.string);
-        const index = hash % self.length;
-        const entry = self.entries[index];
-        if (entry == null) {
-            return null;
-        }
-        // TODO: on collision, we need to do linear probling.
-        if (!std.mem.eql(u8, key.string, entry.?.key.string)) {
-            return null;
-        }
-        return index;
-    }
-};
-
-pub const HashTableEntry = struct {
-    hash: u32,
-    key: *LoxString,
-    value: LoxConstant,
-};
-
 pub const GlobalContext = struct {
     al: std.mem.Allocator,
     objects: std.ArrayList(*LoxObject),
@@ -141,8 +80,9 @@ pub const GlobalContext = struct {
     }
 
     pub fn intern_string(self: *GlobalContext, string: *LoxString) !void {
-        const index = self.strings.find(string);
+        const index = self.strings.index(string);
         if (index != null) {
+            // If we have seen this string, deallocate this one replace with the interned one.
             const existing_string = self.strings.entries[@intCast(index.?)].?.key;
             self.al.free(string.string);
             string.string = existing_string.string;
@@ -411,6 +351,7 @@ fn parse_string(parser: *Parser) !void {
     const string_token = previous_token(parser);
     // +1 and -1 to remove quotes.
     // TODO This doesn't handle any un-escaping
+    // TODO: We should be using `try parser.ctx.al.dupe()` but that seems to leak.
     const string_slice = parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1];
     const string_object = try LoxObject.allocate_string(parser.ctx, string_slice);
     try emit_constant(parser, LoxConstant{ .OBJECT = string_object });
