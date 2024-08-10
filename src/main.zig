@@ -114,3 +114,13 @@ test {
     defer al.free(result);
     try std.testing.expectEqualStrings(result, "true");
 }
+
+// TODO: segfault in test
+test {
+    const al = std.testing.allocator;
+    const source = try std.fmt.allocPrint(al, "\"foo\" + \"bar\" == \"foo\" + \"bar\"", .{});
+    defer al.free(source);
+    const result = try run(al, source, false);
+    defer al.free(result);
+    try std.testing.expectEqualStrings(result, "false");
+}
