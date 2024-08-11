@@ -1,7 +1,8 @@
 const std = @import("std");
 const compiler = @import("compiler.zig");
-const LoxObject = compiler.LoxObject;
-const LoxValue = compiler.LoxValue;
+const types = @import("types.zig");
+const LoxObject = types.LoxObject;
+const LoxValue = types.LoxValue;
 
 pub const HashTable = struct {
     const Entry = struct {

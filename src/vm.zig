@@ -1,18 +1,21 @@
 const std = @import("std");
 
+const GlobalContext = @import("context.zig").GlobalContext;
+const parse = @import("parse.zig");
 const compiler = @import("compiler.zig");
-const LoxValue = compiler.LoxValue;
-const LoxType = compiler.LoxType;
-const LoxObject = compiler.LoxObject;
-const LoxString = compiler.LoxString;
 const OpCode = compiler.OpCode;
+const types = @import("types.zig");
+const LoxValue = types.LoxValue;
+const LoxType = types.LoxType;
+const LoxObject = types.LoxObject;
+const LoxString = types.LoxString;
 
 const VM = struct {
-    chunk: *compiler.Chunk,
-    stack: compiler.ConstantStack,
+    ctx: *GlobalContext,
+
+    chunk: *parse.Chunk,
+    stack: parse.ConstantStack,
     ip: [*]u8,
-    allocator: std.mem.Allocator,
-    ctx: *compiler.GlobalContext,
 
     fn peek(self: *VM, index: usize) LoxValue {
         return self.stack.items[self.stack.items.len - 1 - index];
@@ -62,16 +65,15 @@ pub fn format_constant(al: std.mem.Allocator, constant: LoxValue) ![]u8 {
 }
 
 fn concatenate_strings(vm: *VM, a: *LoxString, b: *LoxString) !*LoxObject {
-    const concatenated_string = try std.mem.concat(vm.allocator, u8, &.{ a.string, b.string });
+    const concatenated_string = try std.mem.concat(vm.ctx.al, u8, &.{ a.string, b.string });
     return try LoxObject.allocate_string(vm.ctx, concatenated_string);
 }
 
-pub fn interpret(ctx: *compiler.GlobalContext, chunk: *compiler.Chunk) ![]u8 {
+pub fn interpret(ctx: *GlobalContext, chunk: *parse.Chunk) ![]u8 {
     var vm = VM{
         .chunk = chunk,
-        .stack = compiler.ConstantStack.init(ctx.al),
+        .stack = parse.ConstantStack.init(ctx.al),
         .ip = chunk.data.items.ptr,
-        .allocator = ctx.al,
         .ctx = ctx,
     };
     defer vm.stack.deinit();
@@ -154,10 +156,10 @@ pub fn interpret(ctx: *compiler.GlobalContext, chunk: *compiler.Chunk) ![]u8 {
             },
             OpCode.RETURN => {
                 const constant = vm.stack.pop();
-                const formatted_constant = try format_constant(vm.allocator, constant);
                 if (vm.stack.items.len != 0) {
                     return error.StackNotEmpty;
                 }
+                const formatted_constant = try format_constant(vm.ctx.al, constant);
                 return formatted_constant;
             },
         }

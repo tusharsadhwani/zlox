@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const GlobalContext = @import("context.zig").GlobalContext;
 const tokenizer = @import("tokenizer.zig");
 const compiler = @import("compiler.zig");
 const vm = @import("vm.zig");
@@ -25,11 +26,11 @@ pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
         }
     }
 
-    var ctx = try compiler.GlobalContext.init(al);
+    var ctx = try GlobalContext.init(al);
     defer ctx.free();
 
     const chunk = try compiler.compile(ctx, tokens.items, source);
-    defer compiler.free_chunk(chunk);
+    defer chunk.free();
 
     if (debug) {
         var index: usize = 0;
