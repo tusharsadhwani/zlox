@@ -79,12 +79,11 @@ pub const GlobalContext = struct {
     }
 
     pub fn intern_string(self: *GlobalContext, string: []u8) ![]u8 {
-        const entry = try self.strings.find_entry(string);
-        if (entry.value != null) {
+        const interned_string = try self.strings.find_key(string);
+        if (interned_string != null) {
             // If we have seen this string, deallocate this one replace with the interned one.
-            const existing_string = entry.key;
             self.al.free(string);
-            return existing_string;
+            return interned_string.?;
         }
         try self.strings.insert(string, LoxConstant{ .BOOLEAN = true });
         return string;
