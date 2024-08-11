@@ -96,7 +96,7 @@ test {
     defer al.free(source);
     const result = try run(al, source, false);
     defer al.free(result);
-    try std.testing.expectEqualStrings(result, "true");
+    try std.testing.expectEqualStrings("true", result);
 }
 test {
     const al = std.testing.allocator;
@@ -104,7 +104,7 @@ test {
     defer al.free(source);
     const result = try run(al, source, false);
     defer al.free(result);
-    try std.testing.expectEqualStrings(result, "false");
+    try std.testing.expectEqualStrings("false", result);
 }
 test {
     const al = std.testing.allocator;
@@ -112,15 +112,13 @@ test {
     defer al.free(source);
     const result = try run(al, source, false);
     defer al.free(result);
-    try std.testing.expectEqualStrings(result, "true");
+    try std.testing.expectEqualStrings("true", result);
 }
-
-// TODO: segfault in test
 test {
     const al = std.testing.allocator;
     const source = try std.fmt.allocPrint(al, "\"foo\" + \"bar\" == \"foo\" + \"bar\"", .{});
     defer al.free(source);
     const result = try run(al, source, false);
     defer al.free(result);
-    try std.testing.expectEqualStrings(result, "false");
+    try std.testing.expectEqualStrings("true", result);
 }

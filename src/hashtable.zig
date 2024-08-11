@@ -1,14 +1,12 @@
 const std = @import("std");
 const compiler = @import("compiler.zig");
 const LoxObject = compiler.LoxObject;
-const LoxString = compiler.LoxString;
 const LoxConstant = compiler.LoxConstant;
 
 pub const HashTable = struct {
     const Entry = struct {
         hash: u32,
-        // The table doesn't own the key.
-        key: *LoxString,
+        key: []u8,
         value: ?LoxConstant,
     };
 
@@ -30,6 +28,7 @@ pub const HashTable = struct {
     pub fn deinit(self: *HashTable) void {
         for (self.entries) |entry| {
             if (entry != null) {
+                self.al.free(entry.?.key);
                 self.al.destroy(entry.?);
             }
         }
@@ -37,14 +36,14 @@ pub const HashTable = struct {
         self.al.destroy(self);
     }
 
-    pub fn find_entry(self: *HashTable, key: *LoxString) !*Entry {
-        const hash = std.hash.Fnv1a_32.hash(key.string);
+    pub fn find_entry(self: *HashTable, key: []u8) !*Entry {
+        const hash = std.hash.Fnv1a_32.hash(key);
         var idx = hash % self.length;
 
         while (true) {
             const entry = self.entries[idx];
             if (entry != null) {
-                if (!std.mem.eql(u8, entry.?.key.string, key.string)) {
+                if (!std.mem.eql(u8, entry.?.key, key)) {
                     // We have a hash collision. Probe for empty spot linearly.
                     idx += 1;
                     continue;
@@ -60,7 +59,7 @@ pub const HashTable = struct {
         }
     }
 
-    pub fn insert(self: *HashTable, key: *LoxString, value: LoxConstant) !void {
+    pub fn insert(self: *HashTable, key: []u8, value: LoxConstant) !void {
         var entry = try self.find_entry(key);
         entry.value = value;
     }
@@ -75,17 +74,10 @@ test "HashTable one insert" {
 
     const sample_string = "foobar";
 
-    const key = try al.create(LoxString);
-    // Since strings are not interned here, we need to manually free the LoxString's
-    defer al.destroy(key);
-    defer al.free(key.string);
-
-    key.object = LoxObject{ .type = .STRING };
-    key.string = try std.fmt.allocPrint(al, sample_string, .{});
-
+    const key = try std.fmt.allocPrint(al, sample_string, .{});
     try table.insert(key, LoxConstant{ .NUMBER = 42 });
     const retrieved_key = try table.find_entry(key);
-    try std.testing.expectEqualStrings(sample_string, retrieved_key.key.string);
+    try std.testing.expectEqualStrings(sample_string, retrieved_key.key);
 }
 
 test "HashTable 23 inserts" {
@@ -93,24 +85,11 @@ test "HashTable 23 inserts" {
 
     const table = try HashTable.init(al);
     defer table.deinit();
-    // Since strings are not interned here, we need to manually free the LoxString's
-    defer for (table.entries) |entry| {
-        if (entry != null) {
-            al.free(entry.?.key.string);
-            al.destroy(entry.?.key);
-        }
-    };
-
     const template = "foobar {d}";
     for (0..23) |index| {
         const inserted_string = try std.fmt.allocPrint(al, template, .{index});
-
-        const key = try al.create(LoxString);
-        key.object = LoxObject{ .type = .STRING };
-        key.string = inserted_string;
-
-        try table.insert(key, LoxConstant{ .NUMBER = 42 });
-        const retrieved_key = try table.find_entry(key);
-        try std.testing.expectEqualStrings(inserted_string, retrieved_key.key.string);
+        try table.insert(inserted_string, LoxConstant{ .BOOLEAN = true });
+        const retrieved_entry = try table.find_entry(inserted_string);
+        try std.testing.expectEqualStrings(inserted_string, retrieved_entry.key);
     }
 }

@@ -33,8 +33,7 @@ pub const LoxObject = struct {
     pub fn allocate_string(ctx: *GlobalContext, string: []u8) !*LoxObject {
         const ptr = try ctx.al.create(LoxString);
         ptr.object = LoxObject{ .type = .STRING };
-        ptr.string = string;
-        try ctx.intern_string(ptr);
+        ptr.string = try ctx.intern_string(string);
         try ctx.add_object(&ptr.object);
         return &ptr.object;
     }
@@ -79,16 +78,16 @@ pub const GlobalContext = struct {
         try self.objects.append(object);
     }
 
-    pub fn intern_string(self: *GlobalContext, string: *LoxString) !void {
+    pub fn intern_string(self: *GlobalContext, string: []u8) ![]u8 {
         const entry = try self.strings.find_entry(string);
         if (entry.value != null) {
             // If we have seen this string, deallocate this one replace with the interned one.
             const existing_string = entry.key;
-            self.al.free(string.string);
-            string.string = existing_string.string;
-            return;
+            self.al.free(string);
+            return existing_string;
         }
         try self.strings.insert(string, LoxConstant{ .BOOLEAN = true });
+        return string;
     }
 };
 
@@ -351,8 +350,7 @@ fn parse_string(parser: *Parser) !void {
     const string_token = previous_token(parser);
     // +1 and -1 to remove quotes.
     // TODO This doesn't handle any un-escaping
-    // TODO: We should be using `try parser.ctx.al.dupe()` but that seems to leak.
-    const string_slice = parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1];
+    const string_slice = try parser.ctx.al.dupe(u8, parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1]);
     const string_object = try LoxObject.allocate_string(parser.ctx, string_slice);
     try emit_constant(parser, LoxConstant{ .OBJECT = string_object });
 }
