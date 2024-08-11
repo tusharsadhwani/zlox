@@ -10,13 +10,13 @@ pub const LoxType = enum {
     NIL,
     OBJECT,
 };
-pub const LoxConstant = union(LoxType) {
+pub const LoxValue = union(LoxType) {
     NUMBER: f32,
     BOOLEAN: bool,
     NIL: u0,
     OBJECT: *LoxObject,
 };
-pub const ConstantStack = std.ArrayList(LoxConstant);
+pub const ConstantStack = std.ArrayList(LoxValue);
 
 pub const LoxObject = struct {
     type: Type,
@@ -85,7 +85,7 @@ pub const GlobalContext = struct {
             self.al.free(string);
             return interned_string.?;
         }
-        try self.strings.insert(string, LoxConstant{ .BOOLEAN = true });
+        try self.strings.insert(string, LoxValue{ .BOOLEAN = true });
         return string;
     }
 };
@@ -340,10 +340,10 @@ fn parse_binary(parser: *Parser) !void {
 fn parse_number(parser: *Parser) !void {
     const num_token = previous_token(parser);
     const number = try std.fmt.parseFloat(
-        std.meta.FieldType(LoxConstant, .NUMBER),
+        std.meta.FieldType(LoxValue, .NUMBER),
         parser.source[num_token.start .. num_token.start + num_token.len],
     );
-    try emit_constant(parser, LoxConstant{ .NUMBER = number });
+    try emit_constant(parser, LoxValue{ .NUMBER = number });
 }
 fn parse_string(parser: *Parser) !void {
     const string_token = previous_token(parser);
@@ -351,16 +351,16 @@ fn parse_string(parser: *Parser) !void {
     // TODO This doesn't handle any un-escaping
     const string_slice = try parser.ctx.al.dupe(u8, parser.source[string_token.start + 1 .. string_token.start + string_token.len - 1]);
     const string_object = try LoxObject.allocate_string(parser.ctx, string_slice);
-    try emit_constant(parser, LoxConstant{ .OBJECT = string_object });
+    try emit_constant(parser, LoxValue{ .OBJECT = string_object });
 }
 fn parse_boolean(parser: *Parser) !void {
     const num_token = previous_token(parser);
-    try emit_constant(parser, LoxConstant{
+    try emit_constant(parser, LoxValue{
         .BOOLEAN = if (num_token.type == TokenType.TRUE) true else false,
     });
 }
 fn parse_nil(parser: *Parser) !void {
-    try emit_constant(parser, LoxConstant{ .NIL = 0 });
+    try emit_constant(parser, LoxValue{ .NIL = 0 });
 }
 
 pub const OpCode = enum(u8) {
@@ -385,7 +385,7 @@ fn emit_bytes(parser: *Parser, byte1: u8, byte2: u8) !void {
     try data.append(byte2);
 }
 
-fn add_constant(parser: *Parser, constant: LoxConstant) !u8 {
+fn add_constant(parser: *Parser, constant: LoxValue) !u8 {
     const constants = &parser.chunk.constants;
     try constants.append(constant);
     if (constants.items.len >= 256) {
@@ -394,7 +394,7 @@ fn add_constant(parser: *Parser, constant: LoxConstant) !u8 {
     return @intCast(constants.items.len - 1);
 }
 
-fn emit_constant(parser: *Parser, value: LoxConstant) !void {
+fn emit_constant(parser: *Parser, value: LoxValue) !void {
     const constant_index = try add_constant(parser, value);
     try emit_bytes(parser, @intFromEnum(OpCode.CONSTANT), constant_index);
 }

@@ -1,16 +1,16 @@
 const std = @import("std");
 const compiler = @import("compiler.zig");
 const LoxObject = compiler.LoxObject;
-const LoxConstant = compiler.LoxConstant;
+const LoxValue = compiler.LoxValue;
 
 pub const HashTable = struct {
     const Entry = struct {
         hash: u32,
         key: []u8,
         // TODO: We never expose a null value to the users of the hash table.
-        // Maybe a magic uncreatable LoxConstant can be used internally
+        // Maybe a magic uncreatable LoxValue can be used internally
         // to denote the null state, making the api even cleaner.
-        value: ?LoxConstant,
+        value: ?LoxValue,
     };
 
     al: std.mem.Allocator,
@@ -73,7 +73,7 @@ pub const HashTable = struct {
             return new_entry;
         }
     }
-    pub fn find(self: *HashTable, key: []u8) !?LoxConstant {
+    pub fn find(self: *HashTable, key: []u8) !?LoxValue {
         const entry = try self.find_entry(key);
         if (entry.value == null) {
             return null;
@@ -90,7 +90,7 @@ pub const HashTable = struct {
 
     // TODO: remove anyerror, a zig bug isn't letting me dd that right now
     // error: unable to resolve inferred error set
-    fn insert_entry(self: *HashTable, entry: *Entry, value: LoxConstant) anyerror!void {
+    fn insert_entry(self: *HashTable, entry: *Entry, value: LoxValue) anyerror!void {
         entry.value = value;
         self.count += 1;
         // If the table is too full, reallocate.
@@ -112,7 +112,7 @@ pub const HashTable = struct {
             self.al.destroy(new_hash_table);
         }
     }
-    pub fn insert(self: *HashTable, key: []u8, value: LoxConstant) !void {
+    pub fn insert(self: *HashTable, key: []u8, value: LoxValue) !void {
         try self.insert_entry(try self.find_entry(key), value);
     }
 
@@ -129,7 +129,7 @@ test "HashTable one insert" {
 
     const key = try std.fmt.allocPrint(al, sample_string, .{});
     const entry = try table.find_entry(key);
-    try table.insert_entry(entry, LoxConstant{ .NUMBER = 42 });
+    try table.insert_entry(entry, LoxValue{ .NUMBER = 42 });
     const retrieved_key = try table.find_entry(key);
     try std.testing.expectEqualStrings(sample_string, retrieved_key.key);
 }
@@ -143,7 +143,7 @@ test "HashTable 23 inserts" {
     for (0..23) |index| {
         const inserted_string = try std.fmt.allocPrint(al, template, .{index});
         const retrieved_entry = try table.find_entry(inserted_string);
-        try table.insert_entry(retrieved_entry, LoxConstant{ .BOOLEAN = true });
+        try table.insert_entry(retrieved_entry, LoxValue{ .BOOLEAN = true });
         try std.testing.expectEqualStrings(inserted_string, retrieved_entry.key);
     }
 }
@@ -156,7 +156,7 @@ test "HashTable 1000 inserts" {
     const template = "foobar {d}";
     for (0..1000) |index| {
         const inserted_string = try std.fmt.allocPrint(al, template, .{index});
-        try table.insert(inserted_string, LoxConstant{ .BOOLEAN = true });
+        try table.insert(inserted_string, LoxValue{ .BOOLEAN = true });
         const retrieved_key = try table.find_key(inserted_string);
         try std.testing.expectEqualStrings(inserted_string, retrieved_key.?);
     }

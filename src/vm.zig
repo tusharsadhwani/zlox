@@ -1,9 +1,8 @@
 const std = @import("std");
 
 const compiler = @import("compiler.zig");
-const LoxConstant = compiler.LoxConstant;
-const LoxType = compiler.LoxType;
 const LoxValue = compiler.LoxValue;
+const LoxType = compiler.LoxType;
 const LoxObject = compiler.LoxObject;
 const LoxString = compiler.LoxString;
 const OpCode = compiler.OpCode;
@@ -15,7 +14,7 @@ const VM = struct {
     allocator: std.mem.Allocator,
     ctx: *compiler.GlobalContext,
 
-    fn peek(self: *VM, index: usize) LoxConstant {
+    fn peek(self: *VM, index: usize) LoxValue {
         return self.stack.items[self.stack.items.len - 1 - index];
     }
 };
@@ -44,7 +43,7 @@ fn binary_check(vm: *VM) !void {
     }
 }
 
-pub fn format_constant(al: std.mem.Allocator, constant: LoxConstant) ![]u8 {
+pub fn format_constant(al: std.mem.Allocator, constant: LoxValue) ![]u8 {
     return try switch (constant) {
         LoxType.NUMBER => std.fmt.allocPrint(al, "{d}", .{constant.NUMBER}),
         LoxType.BOOLEAN => std.fmt.allocPrint(al, "{}", .{constant.BOOLEAN}),
@@ -90,9 +89,9 @@ pub fn interpret(ctx: *compiler.GlobalContext, chunk: *compiler.Chunk) ![]u8 {
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
                 const result = switch (a) {
-                    LoxType.NUMBER => LoxConstant{ .NUMBER = a.NUMBER + b.NUMBER },
+                    LoxType.NUMBER => LoxValue{ .NUMBER = a.NUMBER + b.NUMBER },
                     LoxType.OBJECT => switch (a.OBJECT.type) {
-                        LoxObject.Type.STRING => LoxConstant{
+                        LoxObject.Type.STRING => LoxValue{
                             .OBJECT = try concatenate_strings(&vm, a.OBJECT.as_string(), b.OBJECT.as_string()),
                         },
                     },
@@ -104,36 +103,36 @@ pub fn interpret(ctx: *compiler.GlobalContext, chunk: *compiler.Chunk) ![]u8 {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER - b.NUMBER });
+                try vm.stack.append(LoxValue{ .NUMBER = a.NUMBER - b.NUMBER });
             },
             OpCode.MULTIPLY => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER * b.NUMBER });
+                try vm.stack.append(LoxValue{ .NUMBER = a.NUMBER * b.NUMBER });
             },
             OpCode.DIVIDE => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{ .NUMBER = a.NUMBER / b.NUMBER });
+                try vm.stack.append(LoxValue{ .NUMBER = a.NUMBER / b.NUMBER });
             },
             OpCode.NEGATE => {
                 try unary_number_check(&vm);
                 const number = vm.stack.pop();
-                try vm.stack.append(LoxConstant{ .NUMBER = -number.NUMBER });
+                try vm.stack.append(LoxValue{ .NUMBER = -number.NUMBER });
             },
             OpCode.GREATER_THAN => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{ .BOOLEAN = a.NUMBER > b.NUMBER });
+                try vm.stack.append(LoxValue{ .BOOLEAN = a.NUMBER > b.NUMBER });
             },
             OpCode.LESS_THAN => {
                 try binary_number_check(&vm);
                 const b = vm.stack.pop();
                 const a = vm.stack.pop();
-                try vm.stack.append(LoxConstant{ .BOOLEAN = a.NUMBER < b.NUMBER });
+                try vm.stack.append(LoxValue{ .BOOLEAN = a.NUMBER < b.NUMBER });
             },
             OpCode.EQUALS => {
                 const b = vm.stack.pop();
@@ -151,7 +150,7 @@ pub fn interpret(ctx: *compiler.GlobalContext, chunk: *compiler.Chunk) ![]u8 {
                         },
                     };
                 }
-                try vm.stack.append(LoxConstant{ .BOOLEAN = equal });
+                try vm.stack.append(LoxValue{ .BOOLEAN = equal });
             },
             OpCode.RETURN => {
                 const constant = vm.stack.pop();
