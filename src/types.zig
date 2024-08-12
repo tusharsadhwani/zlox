@@ -11,7 +11,9 @@ pub const LoxType = enum {
 pub const LoxValue = union(LoxType) {
     NUMBER: f32,
     BOOLEAN: bool,
-    NIL: u0,
+    // NIL should always be initialized as 0, if it is received  initialized as
+    // 1 by the VM, that is a mistake in the compiler.
+    NIL: u1,
     OBJECT: *LoxObject,
 };
 

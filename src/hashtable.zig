@@ -4,14 +4,23 @@ const types = @import("types.zig");
 const LoxObject = types.LoxObject;
 const LoxValue = types.LoxValue;
 
+// Denotes uninitialized value.
+// That value should never be returned from `find()` to a user.
+const UNINITIALIZED: LoxValue = .{ .NIL = 1 };
+
 pub const HashTable = struct {
     const Entry = struct {
         hash: u32,
         key: []u8,
-        // TODO: We never expose a null value to the users of the hash table.
-        // Maybe a magic uncreatable LoxValue can be used internally
-        // to denote the null state, making the api even cleaner.
-        value: ?LoxValue,
+        value: LoxValue,
+
+        inline fn is_uninitialized(self: *Entry) bool {
+            return self.value == LoxValue.NIL and self.value.NIL == 1;
+        }
+    };
+
+    const Config = struct {
+        capacity: u32 = 32,
     };
 
     al: std.mem.Allocator,
@@ -19,10 +28,10 @@ pub const HashTable = struct {
     capacity: u32,
     count: u32,
 
-    pub fn init(al: std.mem.Allocator) !*HashTable {
+    pub fn init(al: std.mem.Allocator, config: Config) !*HashTable {
         var table = try al.create(HashTable);
         table.al = al;
-        table.capacity = 32;
+        table.capacity = config.capacity;
         table.count = 0;
         try table.allocate_entries();
         return table;
@@ -30,9 +39,7 @@ pub const HashTable = struct {
 
     fn allocate_entries(self: *HashTable) !void {
         self.entries = try self.al.alloc(?*Entry, self.capacity);
-        for (0..self.entries.len) |idx| {
-            self.entries[idx] = null;
-        }
+        @memset(self.entries, null);
     }
 
     fn deallocate_entries(self: *HashTable, free_keys: bool) void {
@@ -69,21 +76,21 @@ pub const HashTable = struct {
             const new_entry = try self.al.create(Entry);
             new_entry.hash = hash;
             new_entry.key = key;
-            new_entry.value = null;
+            new_entry.value = UNINITIALIZED;
             self.entries[idx] = new_entry;
             return new_entry;
         }
     }
     pub fn find(self: *HashTable, key: []u8) !?LoxValue {
         const entry = try self.find_entry(key);
-        if (entry.value == null) {
+        if (entry.is_uninitialized()) {
             return null;
         }
         return entry.value.?;
     }
     pub fn find_key(self: *HashTable, key: []u8) !?[]u8 {
         const entry = try self.find_entry(key);
-        if (entry.value == null) {
+        if (entry.is_uninitialized()) {
             return null;
         }
         return entry.key;
@@ -96,15 +103,10 @@ pub const HashTable = struct {
         self.count += 1;
         // If the table is too full, reallocate.
         if (@as(f32, @floatFromInt(self.count)) / @as(f32, @floatFromInt(self.capacity)) >= 0.75) {
-            var new_hash_table = try HashTable.init(self.al);
-            // TODO: this deallocate and reallocate is kinda wasteful.
-            new_hash_table.deallocate_entries(true);
-            new_hash_table.capacity = self.capacity * 2;
-            try new_hash_table.allocate_entries();
-
+            var new_hash_table = try HashTable.init(self.al, .{ .capacity = self.capacity * 2 });
             for (self.entries) |old_entry| {
                 if (old_entry != null) {
-                    try new_hash_table.insert(old_entry.?.key, old_entry.?.value.?);
+                    try new_hash_table.insert(old_entry.?.key, old_entry.?.value);
                 }
             }
             self.deallocate_entries(false);
@@ -123,7 +125,7 @@ pub const HashTable = struct {
 test "HashTable one insert" {
     const al = std.testing.allocator;
 
-    const table = try HashTable.init(al);
+    const table = try HashTable.init(al, .{});
     defer table.deinit();
 
     const sample_string = "foobar";
@@ -138,7 +140,7 @@ test "HashTable one insert" {
 test "HashTable 23 inserts" {
     const al = std.testing.allocator;
 
-    const table = try HashTable.init(al);
+    const table = try HashTable.init(al, .{});
     defer table.deinit();
     const template = "foobar {d}";
     for (0..23) |index| {
@@ -152,7 +154,7 @@ test "HashTable 23 inserts" {
 test "HashTable 1000 inserts" {
     const al = std.testing.allocator;
 
-    const table = try HashTable.init(al);
+    const table = try HashTable.init(al, .{});
     defer table.deinit();
     const template = "foobar {d}";
     for (0..1000) |index| {

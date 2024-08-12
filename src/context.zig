@@ -14,7 +14,7 @@ pub const GlobalContext = struct {
         var store = try al.create(GlobalContext);
         store.al = al;
         store.objects = std.ArrayList(*LoxObject).init(al);
-        store.strings = try HashTable.init(al);
+        store.strings = try HashTable.init(al, .{});
         return store;
     }
 
