@@ -12,7 +12,7 @@ pub fn read_file(al: std.mem.Allocator, filepath: []const u8) ![]u8 {
     return contents;
 }
 
-pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
+pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug: bool) !void {
     var tokens = try tokenizer.tokenize(al, source);
     defer tokens.deinit();
 
@@ -54,7 +54,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, debug: bool) ![]u8 {
         }
     }
 
-    return try vm.interpret(ctx, chunk);
+    try vm.interpret(ctx, chunk, writer);
 }
 
 pub fn main() !void {
@@ -83,43 +83,43 @@ pub fn main() !void {
     const source = try read_file(al, filepath);
     defer al.free(source);
 
-    const output = try run(al, source, debug);
-    defer al.free(output);
-
-    const stdout = std.io.getStdOut();
-    _ = try stdout.write(output);
-    _ = try stdout.write("\n");
+    const stdout = std.io.getStdOut().writer().any();
+    try run(al, source, stdout, debug);
 }
 
 test {
     const al = std.testing.allocator;
-    const source = try std.fmt.allocPrint(al, "-1.2 + 3 * 5 < 3 == false", .{});
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "print -1.2 + 3 * 5 < 3 == false;", .{});
     defer al.free(source);
-    const result = try run(al, source, false);
-    defer al.free(result);
-    try std.testing.expectEqualStrings("true", result);
+    try run(al, source, output.writer().any(), false);
+    try std.testing.expectEqualStrings("true\n", output.items);
 }
 test {
     const al = std.testing.allocator;
-    const source = try std.fmt.allocPrint(al, "-1.2 + 3 * 5 < 3 == \"foobar\"", .{});
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "print -1.2 + 3 * 5 < 3 == \"foobar\";", .{});
     defer al.free(source);
-    const result = try run(al, source, false);
-    defer al.free(result);
-    try std.testing.expectEqualStrings("false", result);
+    try run(al, source, output.writer().any(), false);
+    try std.testing.expectEqualStrings("false\n", output.items);
 }
 test {
     const al = std.testing.allocator;
-    const source = try std.fmt.allocPrint(al, "\"foo\" + \"bar\" == \"foobar\"", .{});
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "print \"foo\" + \"bar\" == \"foobar\";", .{});
     defer al.free(source);
-    const result = try run(al, source, false);
-    defer al.free(result);
-    try std.testing.expectEqualStrings("true", result);
+    try run(al, source, output.writer().any(), false);
+    try std.testing.expectEqualStrings("true\n", output.items);
 }
 test {
     const al = std.testing.allocator;
-    const source = try std.fmt.allocPrint(al, "\"foo\" + \"bar\" == \"foo\" + \"bar\"", .{});
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "print \"foo\" + \"bar\" == \"foo\" + \"bar\";", .{});
     defer al.free(source);
-    const result = try run(al, source, false);
-    defer al.free(result);
-    try std.testing.expectEqualStrings("true", result);
+    try run(al, source, output.writer().any(), false);
+    try std.testing.expectEqualStrings("true\n", output.items);
 }

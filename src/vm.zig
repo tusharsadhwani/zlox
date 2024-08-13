@@ -4,6 +4,7 @@ const GlobalContext = @import("context.zig").GlobalContext;
 const parse = @import("parse.zig");
 const compiler = @import("compiler.zig");
 const OpCode = compiler.OpCode;
+const HashTable = @import("hashtable.zig").HashTable;
 const types = @import("types.zig");
 const LoxValue = types.LoxValue;
 const LoxType = types.LoxType;
@@ -15,6 +16,7 @@ const VM = struct {
 
     chunk: *parse.Chunk,
     stack: parse.ConstantStack,
+    globals: *HashTable,
     ip: [*]u8,
 
     fn peek(self: *VM, index: usize) LoxValue {
@@ -69,23 +71,34 @@ fn concatenate_strings(vm: *VM, a: *LoxString, b: *LoxString) !*LoxObject {
     return try LoxObject.allocate_string(vm.ctx, concatenated_string);
 }
 
-pub fn interpret(ctx: *GlobalContext, chunk: *parse.Chunk) ![]u8 {
+pub fn interpret(ctx: *GlobalContext, chunk: *parse.Chunk, writer: std.io.AnyWriter) !void {
     var vm = VM{
         .chunk = chunk,
         .stack = parse.ConstantStack.init(ctx.al),
+        .globals = try HashTable.init(ctx.al, .{}),
         .ip = chunk.data.items.ptr,
         .ctx = ctx,
     };
     defer vm.stack.deinit();
+    defer vm.globals.deinit();
 
     while (true) {
         const x = next_byte(&vm);
         const opcode: OpCode = @enumFromInt(x);
         switch (opcode) {
+            OpCode.POP => {
+                _ = vm.stack.pop();
+            },
             OpCode.CONSTANT => {
                 const constant_index = next_byte(&vm);
                 try vm.stack.append(vm.chunk.constants.items[constant_index]);
             },
+            // OpCode.DEFINE_GLOBAL => {
+            //     const global_index = next_byte(&vm);
+            //     const global_name = vm.chunk.varnames.items[global_index];
+            //     // TODO: don't pop before insert passes, this will make the GC mad
+            //     try vm.globals.insert(global_name, vm.stack.pop());
+            // },
             OpCode.ADD => {
                 try binary_check(&vm);
                 const b = vm.stack.pop();
@@ -154,13 +167,18 @@ pub fn interpret(ctx: *GlobalContext, chunk: *parse.Chunk) ![]u8 {
                 }
                 try vm.stack.append(LoxValue{ .BOOLEAN = equal });
             },
-            OpCode.RETURN => {
+            OpCode.PRINT => {
                 const constant = vm.stack.pop();
                 if (vm.stack.items.len != 0) {
                     return error.StackNotEmpty;
                 }
                 const formatted_constant = try format_constant(vm.ctx.al, constant);
-                return formatted_constant;
+                defer vm.ctx.al.free(formatted_constant);
+                _ = try writer.write(formatted_constant);
+                _ = try writer.writeByte('\n');
+            },
+            OpCode.EXIT => {
+                break;
             },
         }
     }

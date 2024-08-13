@@ -1,1 +1,2 @@
-"foo" + "bar" == "foobar"
+print "foo" + "bar" == "foobar";
+print "foo" + "bar" == 3;

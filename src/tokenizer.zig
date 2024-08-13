@@ -2,6 +2,8 @@ const std = @import("std");
 
 pub const TokenType = enum {
     UNKNOWN,
+    PRINT,
+    SEMICOLON,
     PLUS,
     MINUS,
     STAR,
@@ -44,15 +46,22 @@ fn tokenize_number(source: []u8, start: usize) Token {
     return Token{ .type = TokenType.NUMBER, .start = start, .len = source.len - start };
 }
 
+fn match_keyword(source: []u8, start: usize, string: []const u8) bool {
+    return source.len >= start + string.len and std.mem.eql(u8, source[start .. start + string.len], string);
+}
+
 fn tokenize_identifier(source: []u8, start: usize) Token {
-    if (source.len >= start + 4 and std.mem.eql(u8, source[start .. start + 4], "true")) {
+    if (match_keyword(source, start, "true")) {
         return Token{ .type = .TRUE, .start = start, .len = 4 };
     }
-    if (source.len >= start + 5 and std.mem.eql(u8, source[start .. start + 5], "false")) {
+    if (match_keyword(source, start, "false")) {
         return Token{ .type = .FALSE, .start = start, .len = 5 };
     }
-    if (source.len >= start + 3 and std.mem.eql(u8, source[start .. start + 3], "nil")) {
+    if (match_keyword(source, start, "nil")) {
         return Token{ .type = .NIL, .start = start, .len = 3 };
+    }
+    if (match_keyword(source, start, "print")) {
+        return Token{ .type = .PRINT, .start = start, .len = 5 };
     }
 
     for (start + 1..source.len) |current| {
@@ -87,6 +96,7 @@ pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
 
         const token = switch (char) {
             // TOOD: Add += -= etc.
+            ';' => Token{ .type = TokenType.SEMICOLON, .start = index, .len = 1 },
             '+' => Token{ .type = TokenType.PLUS, .start = index, .len = 1 },
             '-' => Token{ .type = TokenType.MINUS, .start = index, .len = 1 },
             '*' => Token{ .type = TokenType.STAR, .start = index, .len = 1 },

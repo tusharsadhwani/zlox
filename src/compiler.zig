@@ -13,6 +13,9 @@ const LoxValue = types.LoxValue;
 const LoxObject = types.LoxObject;
 
 pub const OpCode = enum(u8) {
+    EXIT,
+    POP,
+    PRINT,
     CONSTANT,
     ADD,
     SUBTRACT,
@@ -22,7 +25,6 @@ pub const OpCode = enum(u8) {
     LESS_THAN,
     GREATER_THAN,
     EQUALS,
-    RETURN,
 };
 
 pub fn compile(ctx: *GlobalContext, tokens: []tokenizer.Token, source: []u8) !*Chunk {
@@ -45,8 +47,13 @@ pub fn compile(ctx: *GlobalContext, tokens: []tokenizer.Token, source: []u8) !*C
         .ctx = ctx,
     };
 
-    try parser.expression();
+    while (parser.peek().type != TokenType.EOF) {
+        try parser.parse_declaration();
+    }
     try parser.consume(TokenType.EOF);
-    try parser.emit_byte(@intFromEnum(OpCode.RETURN));
+    if (parser.current != parser.tokens.len) {
+        return error.UnexpectedEOF;
+    }
+    try parser.end();
     return chunk;
 }

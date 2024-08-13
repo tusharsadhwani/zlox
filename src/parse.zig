@@ -51,55 +51,7 @@ pub const Parser = struct {
     chunk: *Chunk,
     parse_rules: ParseRules,
 
-    fn parse_unary(self: *Parser) !void {
-        const operator = previous_token(self).type;
-        try parse_precedence(self, @enumFromInt(@intFromEnum(self.parse_rules.get(operator).?.precedence) + 1));
-        try switch (operator) {
-            TokenType.MINUS => emit_byte(self, @intFromEnum(OpCode.NEGATE)),
-            else => unreachable,
-        };
-    }
-    fn parse_binary(self: *Parser) !void {
-        const operator = previous_token(self).type;
-        try parse_precedence(self, @enumFromInt(@intFromEnum(self.parse_rules.get(operator).?.precedence) + 1));
-        try switch (operator) {
-            TokenType.PLUS => emit_byte(self, @intFromEnum(OpCode.ADD)),
-            TokenType.MINUS => emit_byte(self, @intFromEnum(OpCode.SUBTRACT)),
-            TokenType.STAR => emit_byte(self, @intFromEnum(OpCode.MULTIPLY)),
-            TokenType.SLASH => emit_byte(self, @intFromEnum(OpCode.DIVIDE)),
-            TokenType.LESS_THAN => emit_byte(self, @intFromEnum(OpCode.LESS_THAN)),
-            TokenType.GREATER_THAN => emit_byte(self, @intFromEnum(OpCode.GREATER_THAN)),
-            TokenType.EQUAL_EQUAL => emit_byte(self, @intFromEnum(OpCode.EQUALS)),
-            else => unreachable,
-        };
-    }
-    fn parse_number(self: *Parser) !void {
-        const num_token = previous_token(self);
-        const number = try std.fmt.parseFloat(
-            std.meta.FieldType(LoxValue, .NUMBER),
-            self.source[num_token.start .. num_token.start + num_token.len],
-        );
-        try emit_constant(self, LoxValue{ .NUMBER = number });
-    }
-    fn parse_string(self: *Parser) !void {
-        const string_token = previous_token(self);
-        // +1 and -1 to remove quotes.
-        // TODO This doesn't handle any un-escaping
-        const string_slice = try self.ctx.al.dupe(u8, self.source[string_token.start + 1 .. string_token.start + string_token.len - 1]);
-        const string_object = try LoxObject.allocate_string(self.ctx, string_slice);
-        try emit_constant(self, LoxValue{ .OBJECT = string_object });
-    }
-    fn parse_boolean(self: *Parser) !void {
-        const num_token = previous_token(self);
-        try emit_constant(self, LoxValue{
-            .BOOLEAN = if (num_token.type == TokenType.TRUE) true else false,
-        });
-    }
-    fn parse_nil(self: *Parser) !void {
-        try emit_constant(self, LoxValue{ .NIL = 0 });
-    }
-
-    fn peek(self: *Parser) *tokenizer.Token {
+    pub fn peek(self: *Parser) *tokenizer.Token {
         return &self.tokens[self.current];
     }
 
@@ -112,22 +64,19 @@ pub const Parser = struct {
     }
 
     fn read_token(self: *Parser) *tokenizer.Token {
-        advance(self);
-        return previous_token(self);
+        self.advance();
+        return self.previous_token();
     }
 
     pub fn consume(self: *Parser, token_type: TokenType) !void {
-        if (peek(self).type != token_type) {
+        if (self.peek().type != token_type) {
             return error.UnexpectedToken;
         }
-    }
-
-    pub fn expression(self: *Parser) !void {
-        try parse_precedence(self, Precedence.ASSIGNMENT);
+        self.advance();
     }
 
     fn parse_precedence(self: *Parser, precedence: Precedence) !void {
-        var token = read_token(self);
+        var token = self.read_token();
         const prefix_rule = self.parse_rules.get(token.type).?.prefix;
         if (prefix_rule == null) {
             return error.ExpressionExpected;
@@ -135,8 +84,8 @@ pub const Parser = struct {
         try prefix_rule.?(self);
 
         while (true) {
-            if (@intFromEnum(precedence) <= @intFromEnum(self.parse_rules.get(peek(self).type).?.precedence)) {
-                token = read_token(self);
+            if (@intFromEnum(precedence) <= @intFromEnum(self.parse_rules.get(self.peek().type).?.precedence)) {
+                token = self.read_token();
                 const infix_rule = self.parse_rules.get(token.type).?.infix;
                 if (infix_rule == null) {
                     return error.ExpressionExpected;
@@ -148,8 +97,87 @@ pub const Parser = struct {
         }
     }
 
-    // TODO: unpub
-    pub fn emit_byte(self: *Parser, byte: u8) !void {
+    pub fn parse_declaration(self: *Parser) !void {
+        try self.parse_statement();
+    }
+
+    fn parse_statement(self: *Parser) !void {
+        if (self.peek().type == TokenType.PRINT) {
+            try self.parse_print_statement();
+            return;
+        }
+        try self.parse_expression_statement();
+    }
+
+    fn parse_print_statement(self: *Parser) !void {
+        try self.consume(TokenType.PRINT);
+        try self.parse_expression();
+        try self.consume(TokenType.SEMICOLON);
+        try self.emit_byte(@intFromEnum(OpCode.PRINT));
+    }
+
+    fn parse_expression_statement(self: *Parser) !void {
+        try self.parse_expression();
+        try self.consume(TokenType.SEMICOLON);
+        try self.emit_byte(@intFromEnum(OpCode.POP));
+    }
+
+    fn parse_expression(self: *Parser) !void {
+        try self.parse_precedence(Precedence.ASSIGNMENT);
+    }
+
+    fn parse_unary(self: *Parser) !void {
+        const operator = self.previous_token().type;
+        try self.parse_precedence(@enumFromInt(@intFromEnum(self.parse_rules.get(operator).?.precedence) + 1));
+        try switch (operator) {
+            TokenType.MINUS => self.emit_byte(@intFromEnum(OpCode.NEGATE)),
+            else => unreachable,
+        };
+    }
+    fn parse_binary(self: *Parser) !void {
+        const operator = self.previous_token().type;
+        try self.parse_precedence(@enumFromInt(@intFromEnum(self.parse_rules.get(operator).?.precedence) + 1));
+        try switch (operator) {
+            TokenType.PLUS => self.emit_byte(@intFromEnum(OpCode.ADD)),
+            TokenType.MINUS => self.emit_byte(@intFromEnum(OpCode.SUBTRACT)),
+            TokenType.STAR => self.emit_byte(@intFromEnum(OpCode.MULTIPLY)),
+            TokenType.SLASH => self.emit_byte(@intFromEnum(OpCode.DIVIDE)),
+            TokenType.LESS_THAN => self.emit_byte(@intFromEnum(OpCode.LESS_THAN)),
+            TokenType.GREATER_THAN => self.emit_byte(@intFromEnum(OpCode.GREATER_THAN)),
+            TokenType.EQUAL_EQUAL => self.emit_byte(@intFromEnum(OpCode.EQUALS)),
+            else => unreachable,
+        };
+    }
+    fn parse_number(self: *Parser) !void {
+        const num_token = self.previous_token();
+        const number = try std.fmt.parseFloat(
+            std.meta.FieldType(LoxValue, .NUMBER),
+            self.source[num_token.start .. num_token.start + num_token.len],
+        );
+        try self.emit_constant(LoxValue{ .NUMBER = number });
+    }
+    fn parse_string(self: *Parser) !void {
+        const string_token = self.previous_token();
+        // +1 and -1 to remove quotes.
+        // TODO This doesn't handle any un-escaping
+        const string_slice = try self.ctx.al.dupe(u8, self.source[string_token.start + 1 .. string_token.start + string_token.len - 1]);
+        const string_object = try LoxObject.allocate_string(self.ctx, string_slice);
+        try self.emit_constant(LoxValue{ .OBJECT = string_object });
+    }
+    fn parse_boolean(self: *Parser) !void {
+        const num_token = self.previous_token();
+        try self.emit_constant(LoxValue{
+            .BOOLEAN = if (num_token.type == TokenType.TRUE) true else false,
+        });
+    }
+    fn parse_nil(self: *Parser) !void {
+        try self.emit_constant(LoxValue{ .NIL = 0 });
+    }
+    pub fn end(self: *Parser) !void {
+        try self.emit_byte(@intFromEnum(OpCode.EXIT));
+    }
+
+    fn emit_byte(self: *Parser, byte: u8) !void {
         try self.chunk.data.append(byte);
     }
     fn emit_bytes(self: *Parser, byte1: u8, byte2: u8) !void {
@@ -168,8 +196,8 @@ pub const Parser = struct {
     }
 
     fn emit_constant(self: *Parser, value: LoxValue) !void {
-        const constant_index = try add_constant(self, value);
-        try emit_bytes(self, @intFromEnum(OpCode.CONSTANT), constant_index);
+        const constant_index = try self.add_constant(value);
+        try self.emit_bytes(@intFromEnum(OpCode.CONSTANT), constant_index);
     }
 };
 
@@ -281,7 +309,7 @@ pub const PARSE_RULES: [13]ParseRuleTuple = .{
         },
     },
     .{
-        TokenType.EOF,
+        TokenType.SEMICOLON,
         ParseRule{
             .prefix = null,
             .infix = null,
