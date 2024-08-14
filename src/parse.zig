@@ -77,20 +77,18 @@ pub const Parser = struct {
 
     fn parse_precedence(self: *Parser, precedence: Precedence) !void {
         var token = self.read_token();
-        const prefix_rule = self.parse_rules.get(token.type).?.prefix;
-        if (prefix_rule == null) {
-            return error.ExpressionExpected;
-        }
-        try prefix_rule.?(self);
+        const parse_rule = self.parse_rules.get(token.type) orelse return error.RuleExpected;
+        const prefix_rule = parse_rule.prefix orelse return error.ExpressionExpected;
+        try prefix_rule(self);
 
         while (true) {
-            if (@intFromEnum(precedence) <= @intFromEnum(self.parse_rules.get(self.peek().type).?.precedence)) {
+            const next_rule = self.parse_rules.get(self.peek().type) orelse return error.RuleExpected;
+            const next_precedence = next_rule.precedence;
+            if (@intFromEnum(precedence) <= @intFromEnum(next_precedence)) {
                 token = self.read_token();
-                const infix_rule = self.parse_rules.get(token.type).?.infix;
-                if (infix_rule == null) {
-                    return error.ExpressionExpected;
-                }
-                try infix_rule.?(self);
+                const next_parse_rule = self.parse_rules.get(token.type) orelse return error.RuleExpected;
+                const infix_rule = next_parse_rule.infix orelse return error.ExpressionExpected;
+                try infix_rule(self);
             } else {
                 break;
             }
@@ -128,7 +126,8 @@ pub const Parser = struct {
 
     fn parse_unary(self: *Parser) !void {
         const operator = self.previous_token().type;
-        try self.parse_precedence(@enumFromInt(@intFromEnum(self.parse_rules.get(operator).?.precedence) + 1));
+        const parse_rule = self.parse_rules.get(operator) orelse return error.OperatorNotFound;
+        try self.parse_precedence(@enumFromInt(@intFromEnum(parse_rule.precedence) + 1));
         try switch (operator) {
             TokenType.MINUS => self.emit_byte(@intFromEnum(OpCode.NEGATE)),
             else => unreachable,
@@ -136,7 +135,8 @@ pub const Parser = struct {
     }
     fn parse_binary(self: *Parser) !void {
         const operator = self.previous_token().type;
-        try self.parse_precedence(@enumFromInt(@intFromEnum(self.parse_rules.get(operator).?.precedence) + 1));
+        const parse_rule = self.parse_rules.get(operator) orelse return error.OperatorNotFound;
+        try self.parse_precedence(@enumFromInt(@intFromEnum(parse_rule.precedence) + 1));
         try switch (operator) {
             TokenType.PLUS => self.emit_byte(@intFromEnum(OpCode.ADD)),
             TokenType.MINUS => self.emit_byte(@intFromEnum(OpCode.SUBTRACT)),
