@@ -39,7 +39,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
         while (index < chunk.data.items.len) {
             const opcode: compiler.OpCode = @enumFromInt(chunk.data.items[index]);
             switch (opcode) {
-                compiler.OpCode.CONSTANT => {
+                compiler.OpCode.LOAD_CONST => {
                     const constant_index = chunk.data.items[index + 1];
                     const constant = chunk.constants.items[constant_index];
                     const formatted_constant = try VM.format_constant(al, constant);

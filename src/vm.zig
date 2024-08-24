@@ -93,7 +93,7 @@ pub const VM = struct {
                 OpCode.POP => {
                     _ = self.stack.pop();
                 },
-                OpCode.CONSTANT => {
+                OpCode.LOAD_CONST => {
                     const constant_index = next_byte(self);
                     try self.stack.append(self.chunk.constants.items[constant_index]);
                 },

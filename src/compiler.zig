@@ -16,9 +16,10 @@ pub const OpCode = enum(u8) {
     EXIT,
     POP,
     PRINT,
+    LOAD_CONST,
     STORE_NAME,
     LOAD_NAME,
-    CONSTANT,
+    // TODO: use a BINARY_OP opcode
     ADD,
     SUBTRACT,
     MULTIPLY,
