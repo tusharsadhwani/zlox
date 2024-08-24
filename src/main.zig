@@ -47,7 +47,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
                     std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), constant_index, formatted_constant });
                     index += 2;
                 },
-                compiler.OpCode.STORE_NAME => {
+                compiler.OpCode.STORE_NAME, compiler.OpCode.LOAD_NAME => {
                     const name_index = chunk.data.items[index + 1];
                     const name = chunk.varnames.items[name_index];
                     std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), name_index, name });

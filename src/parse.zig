@@ -194,6 +194,11 @@ pub const Parser = struct {
             .BOOLEAN = if (num_token.type == TokenType.TRUE) true else false,
         });
     }
+    fn parse_identifier(self: *Parser) !void {
+        const identifier = self.previous_token();
+        const identifier_name = self.source[identifier.start .. identifier.start + identifier.len];
+        try self.load_name(identifier_name);
+    }
     fn parse_nil(self: *Parser) !void {
         try self.emit_constant(LoxValue{ .NIL = 0 });
     }
@@ -237,6 +242,12 @@ pub const Parser = struct {
         const name_index = try self.add_name(value);
         try self.emit_bytes(@intFromEnum(OpCode.STORE_NAME), name_index);
     }
+
+    fn load_name(self: *Parser, value: []u8) !void {
+        // TODO: add deduplication of names in the names list.
+        const name_index = try self.add_name(value);
+        try self.emit_bytes(@intFromEnum(OpCode.LOAD_NAME), name_index);
+    }
 };
 
 const ParseFn = *const fn (*Parser) anyerror!void;
@@ -249,7 +260,7 @@ const ParseRule = struct {
 pub const ParseRules = std.AutoHashMap(TokenType, ParseRule);
 
 const ParseRuleTuple = struct { TokenType, ParseRule };
-pub const PARSE_RULES: [13]ParseRuleTuple = .{
+pub const PARSE_RULES: [14]ParseRuleTuple = .{
     .{
         TokenType.PLUS,
         ParseRule{
@@ -342,6 +353,14 @@ pub const PARSE_RULES: [13]ParseRuleTuple = .{
         TokenType.NIL,
         ParseRule{
             .prefix = Parser.parse_nil,
+            .infix = null,
+            .precedence = Precedence.NONE,
+        },
+    },
+    .{
+        TokenType.IDENTIFIER,
+        ParseRule{
+            .prefix = Parser.parse_identifier,
             .infix = null,
             .precedence = Precedence.NONE,
         },
