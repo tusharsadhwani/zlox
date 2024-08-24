@@ -43,12 +43,12 @@ pub const HashTable = struct {
     }
 
     fn deallocate_entries(self: *HashTable, free_keys: bool) void {
-        for (self.entries) |entry| {
-            if (entry != null) {
+        for (self.entries) |entry_| {
+            if (entry_) |entry| {
                 if (free_keys) {
-                    self.al.free(entry.?.key);
-                } else {}
-                self.al.destroy(entry.?);
+                    self.al.free(entry.key);
+                }
+                self.al.destroy(entry);
             }
         }
         self.al.free(self.entries);
