@@ -17,18 +17,21 @@ pub const Chunk = struct {
     al: std.mem.Allocator,
     data: std.ArrayList(u8),
     constants: ConstantStack,
+    varnames: std.ArrayList([]u8),
 
     pub fn create(al: std.mem.Allocator) !*Chunk {
         var chunk = try al.create(Chunk);
         chunk.al = al;
         chunk.data = std.ArrayList(u8).init(al);
         chunk.constants = ConstantStack.init(al);
+        chunk.varnames = std.ArrayList([]u8).init(al);
         return chunk;
     }
 
     pub fn free(self: *Chunk) void {
         self.data.deinit();
         self.constants.deinit();
+        self.varnames.deinit();
         self.al.destroy(self);
     }
 };
@@ -57,6 +60,14 @@ pub const Parser = struct {
 
     fn advance(self: *Parser) void {
         self.current += 1;
+    }
+
+    pub fn match(self: *Parser, token_type: TokenType) bool {
+        if (self.peek().type == token_type) {
+            self.advance();
+            return true;
+        }
+        return false;
     }
 
     fn previous_token(self: *Parser) *tokenizer.Token {
@@ -100,23 +111,36 @@ pub const Parser = struct {
     }
 
     fn parse_statement(self: *Parser) !void {
-        if (self.peek().type == TokenType.PRINT) {
+        if (self.match(TokenType.PRINT)) {
             try self.parse_print_statement();
+            return;
+        }
+        if (self.match(TokenType.VAR)) {
+            try self.parse_assignment();
             return;
         }
         try self.parse_expression_statement();
     }
 
     fn parse_print_statement(self: *Parser) !void {
-        try self.consume(TokenType.PRINT);
         try self.parse_expression();
-        try self.consume(TokenType.SEMICOLON);
+        try self.consume(.SEMICOLON);
         try self.emit_byte(@intFromEnum(OpCode.PRINT));
+    }
+
+    fn parse_assignment(self: *Parser) !void {
+        try self.consume(.IDENTIFIER);
+        const identifier = self.previous_token();
+        const identifier_name = self.source[identifier.start .. identifier.start + identifier.len];
+        try self.consume(.EQUAL);
+        try self.parse_expression();
+        try self.consume(.SEMICOLON);
+        try self.store_name(identifier_name);
     }
 
     fn parse_expression_statement(self: *Parser) !void {
         try self.parse_expression();
-        try self.consume(TokenType.SEMICOLON);
+        try self.consume(.SEMICOLON);
         try self.emit_byte(@intFromEnum(OpCode.POP));
     }
 
@@ -198,6 +222,20 @@ pub const Parser = struct {
     fn emit_constant(self: *Parser, value: LoxValue) !void {
         const constant_index = try self.add_constant(value);
         try self.emit_bytes(@intFromEnum(OpCode.CONSTANT), constant_index);
+    }
+
+    fn add_name(self: *Parser, name: []u8) !u8 {
+        const names = &self.chunk.varnames;
+        try names.append(name);
+        if (names.items.len >= 256) {
+            return error.TooManyConstants;
+        }
+        return @intCast(names.items.len - 1);
+    }
+
+    fn store_name(self: *Parser, value: []u8) !void {
+        const name_index = try self.add_name(value);
+        try self.emit_bytes(@intFromEnum(OpCode.STORE_NAME), name_index);
     }
 };
 

@@ -3,7 +3,7 @@ const std = @import("std");
 const GlobalContext = @import("context.zig").GlobalContext;
 const tokenizer = @import("tokenizer.zig");
 const compiler = @import("compiler.zig");
-const vm = @import("vm.zig");
+const VM = @import("vm.zig").VM;
 
 pub fn read_file(al: std.mem.Allocator, filepath: []const u8) ![]u8 {
     const file = try std.fs.cwd().openFile(filepath, .{});
@@ -17,6 +17,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
     defer tokens.deinit();
 
     if (debug) {
+        std.debug.print("------ Tokens ------\n", .{});
         for (tokens.items) |token| {
             std.debug.print("{d:3} {s:15} {}\n", .{
                 token.start,
@@ -33,17 +34,23 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
     defer chunk.free();
 
     if (debug) {
+        std.debug.print("------ OpCodes ------\n", .{});
         var index: usize = 0;
-
         while (index < chunk.data.items.len) {
             const opcode: compiler.OpCode = @enumFromInt(chunk.data.items[index]);
             switch (opcode) {
                 compiler.OpCode.CONSTANT => {
                     const constant_index = chunk.data.items[index + 1];
                     const constant = chunk.constants.items[constant_index];
-                    const formatted_constant = try vm.format_constant(al, constant);
+                    const formatted_constant = try VM.format_constant(al, constant);
                     defer al.free(formatted_constant);
-                    std.debug.print("{s:<15} {s}\n", .{ @tagName(opcode), formatted_constant });
+                    std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), constant_index, formatted_constant });
+                    index += 2;
+                },
+                compiler.OpCode.STORE_NAME => {
+                    const name_index = chunk.data.items[index + 1];
+                    const name = chunk.varnames.items[name_index];
+                    std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), name_index, name });
                     index += 2;
                 },
                 else => {
@@ -53,13 +60,17 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
             }
         }
     }
-
-    try vm.interpret(ctx, chunk, writer);
+    if (debug) {
+        std.debug.print("------ Output ------\n", .{});
+    }
+    const vm = try VM.create(ctx, chunk);
+    defer vm.deinit();
+    try vm.interpret(writer);
 }
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
+    // defer std.debug.assert(gpa.deinit() == .ok);
     const al = gpa.allocator();
 
     const argv = try std.process.argsAlloc(al);

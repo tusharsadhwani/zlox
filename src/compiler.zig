@@ -16,6 +16,7 @@ pub const OpCode = enum(u8) {
     EXIT,
     POP,
     PRINT,
+    STORE_NAME,
     CONSTANT,
     ADD,
     SUBTRACT,

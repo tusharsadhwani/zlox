@@ -21,16 +21,19 @@ pub const HashTable = struct {
 
     const Config = struct {
         capacity: u32 = 32,
+        keys_owned: bool = true,
     };
 
     al: std.mem.Allocator,
     entries: []?*Entry,
+    keys_owned: bool,
     capacity: u32,
     count: u32,
 
     pub fn init(al: std.mem.Allocator, config: Config) !*HashTable {
         var table = try al.create(HashTable);
         table.al = al;
+        table.keys_owned = config.keys_owned;
         table.capacity = config.capacity;
         table.count = 0;
         try table.allocate_entries();
@@ -55,7 +58,7 @@ pub const HashTable = struct {
     }
 
     pub fn deinit(self: *HashTable) void {
-        self.deallocate_entries(true);
+        self.deallocate_entries(self.keys_owned);
         self.al.destroy(self);
     }
 
@@ -86,7 +89,7 @@ pub const HashTable = struct {
         if (entry.is_uninitialized()) {
             return null;
         }
-        return entry.value.?;
+        return entry.value;
     }
     pub fn find_key(self: *HashTable, key: []u8) !?[]u8 {
         const entry = try self.find_entry(key);

@@ -3,6 +3,7 @@ const std = @import("std");
 pub const TokenType = enum {
     UNKNOWN,
     PRINT,
+    VAR,
     SEMICOLON,
     PLUS,
     MINUS,
@@ -62,6 +63,9 @@ fn tokenize_identifier(source: []u8, start: usize) Token {
     }
     if (match_keyword(source, start, "print")) {
         return Token{ .type = .PRINT, .start = start, .len = 5 };
+    }
+    if (match_keyword(source, start, "var")) {
+        return Token{ .type = .VAR, .start = start, .len = 3 };
     }
 
     for (start + 1..source.len) |current| {
