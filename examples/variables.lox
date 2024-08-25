@@ -1,3 +1,7 @@
 var x = 100;
 var y = 40;
 print x + y;
+
+var beverage = "jeera soda";
+var breakfast = "sandwich with " + beverage;
+print breakfast;
