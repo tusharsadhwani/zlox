@@ -226,6 +226,8 @@ pub const Parser = struct {
 
     fn emit_constant(self: *Parser, value: LoxValue) !void {
         const constant_index = try self.add_constant(value);
+        // TODO: member assignment code should go right here.
+        // Refer to section 21.4 for the changes here when implementing objects.
         try self.emit_bytes(@intFromEnum(OpCode.LOAD_CONST), constant_index);
     }
 
