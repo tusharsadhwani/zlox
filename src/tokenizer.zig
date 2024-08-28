@@ -17,6 +17,7 @@ pub const TokenType = enum {
     NUMBER,
     IDENTIFIER,
     STRING,
+    COMMENT,
     TRUE,
     FALSE,
     NIL,
@@ -87,6 +88,16 @@ fn tokenize_string(source: []u8, start: usize) !Token {
     return error.UnterminatedString;
 }
 
+fn tokenize_comment(source: []u8, start: usize) Token {
+    for (start + 1..source.len) |current| {
+        const char = source[current];
+        if (char == '\n') {
+            return Token{ .type = .COMMENT, .start = start, .len = current - start };
+        }
+    }
+    return Token{ .type = .COMMENT, .start = start, .len = source.len - start };
+}
+
 pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
     var tokens = std.ArrayList(Token).init(al);
 
@@ -104,7 +115,10 @@ pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
             '+' => Token{ .type = TokenType.PLUS, .start = index, .len = 1 },
             '-' => Token{ .type = TokenType.MINUS, .start = index, .len = 1 },
             '*' => Token{ .type = TokenType.STAR, .start = index, .len = 1 },
-            '/' => Token{ .type = TokenType.SLASH, .start = index, .len = 1 },
+            '/' => if (index + 1 < source.len and source[index + 1] == '/')
+                tokenize_comment(source, index)
+            else
+                Token{ .type = TokenType.SLASH, .start = index, .len = 1 },
             '=' => if (index + 1 < source.len and source[index + 1] == '=')
                 Token{ .type = TokenType.EQUAL_EQUAL, .start = index, .len = 2 }
             else
@@ -117,7 +131,9 @@ pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
             '"' => try tokenize_string(source, index),
             else => Token{ .type = TokenType.UNKNOWN, .start = index, .len = 1 },
         };
-        try tokens.append(token);
+        if (token.type != .COMMENT) {
+            try tokens.append(token);
+        }
         index = index + token.len;
     }
 
