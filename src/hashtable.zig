@@ -32,6 +32,7 @@ pub const HashTable = struct {
 
     pub fn init(al: std.mem.Allocator, config: Config) !*HashTable {
         var table = try al.create(HashTable);
+        errdefer table.deinit();
         table.al = al;
         table.keys_owned = config.keys_owned;
         table.capacity = config.capacity;

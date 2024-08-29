@@ -2,6 +2,7 @@ const std = @import("std");
 
 const GlobalContext = @import("context.zig").GlobalContext;
 const tokenizer = @import("tokenizer.zig");
+const Token = tokenizer.Token;
 const TokenType = tokenizer.TokenType;
 const compiler = @import("compiler.zig");
 const OpCode = compiler.OpCode;
@@ -47,14 +48,39 @@ const Precedence = enum(u8) {
 };
 
 pub const Parser = struct {
+    const Local = struct {
+        identifier: []u8,
+        scope_depth: u8,
+    };
+
     ctx: *GlobalContext,
     current: usize,
     tokens: []tokenizer.Token,
     source: []u8,
     chunk: *Chunk,
+    locals: std.ArrayList(Local),
+    scope_depth: u8,
     parse_rules: ParseRules,
 
+    pub fn init(ctx: *GlobalContext, source: []u8, tokens: []tokenizer.Token, chunk: *Chunk, parse_rules: ParseRules) Parser {
+        return Parser{
+            .current = 0,
+            .tokens = tokens,
+            .source = source,
+            .chunk = chunk,
+            .locals = std.ArrayList(Local).init(ctx.al),
+            .scope_depth = 0,
+            .parse_rules = parse_rules,
+            .ctx = ctx,
+        };
+    }
+
+    pub fn deinit(self: *Parser) void {
+        self.locals.deinit();
+    }
+
     pub fn peek(self: *Parser) *tokenizer.Token {
+        // TODO: can easily go out of bounds
         return &self.tokens[self.current];
     }
 
@@ -88,16 +114,16 @@ pub const Parser = struct {
 
     fn parse_precedence(self: *Parser, precedence: Precedence) !void {
         var token = self.read_token();
-        const parse_rule = self.parse_rules.get(token.type) orelse return error.RuleExpected;
+        const parse_rule = self.parse_rules.get(token.type) orelse return error.InvalidSyntax;
         const prefix_rule = parse_rule.prefix orelse return error.ExpressionExpected;
         try prefix_rule(self);
 
         while (true) {
-            const next_rule = self.parse_rules.get(self.peek().type) orelse return error.RuleExpected;
+            const next_rule = self.parse_rules.get(self.peek().type) orelse return error.InvalidSyntax;
             const next_precedence = next_rule.precedence;
             if (@intFromEnum(precedence) <= @intFromEnum(next_precedence)) {
                 token = self.read_token();
-                const next_parse_rule = self.parse_rules.get(token.type) orelse return error.RuleExpected;
+                const next_parse_rule = self.parse_rules.get(token.type) orelse return error.InvalidSyntax;
                 const infix_rule = next_parse_rule.infix orelse return error.ExpressionExpected;
                 try infix_rule(self);
             } else {
@@ -106,7 +132,39 @@ pub const Parser = struct {
         }
     }
 
-    pub fn parse_declaration(self: *Parser) !void {
+    pub fn parse_block(self: *Parser) !void {
+        self.scope_depth += 1;
+
+        while (true) {
+            const next_token = self.peek();
+            if (next_token.type == TokenType.RBRACE) {
+                break;
+            } else if (next_token.type == TokenType.EOF) {
+                return error.UnterminatedBlock;
+            }
+            try self.parse_declaration();
+        }
+        try self.consume(TokenType.RBRACE);
+        // Pop all locals from this scope from the stack
+        const current_scope_depth = self.scope_depth;
+        self.scope_depth -= 1;
+
+        var index = self.locals.items.len;
+        while (index > 0) {
+            index -= 1;
+            // TODO: can probably be made more efficient
+            const local = self.locals.items[index];
+            if (local.scope_depth != current_scope_depth) break;
+            _ = self.locals.pop();
+            try self.emit_byte(@intFromEnum(OpCode.POP));
+        }
+    }
+
+    pub fn parse_declaration(self: *Parser) anyerror!void {
+        if (self.match(TokenType.LBRACE)) {
+            try self.parse_block();
+            return;
+        }
         try self.parse_statement();
     }
 
@@ -116,7 +174,7 @@ pub const Parser = struct {
             return;
         }
         if (self.match(TokenType.VAR)) {
-            try self.parse_assignment();
+            try self.parse_variable_declaration();
             return;
         }
         try self.parse_expression_statement();
@@ -128,14 +186,18 @@ pub const Parser = struct {
         try self.emit_byte(@intFromEnum(OpCode.PRINT));
     }
 
-    fn parse_assignment(self: *Parser) !void {
+    fn parse_variable_declaration(self: *Parser) !void {
         try self.consume(.IDENTIFIER);
         const identifier = self.previous_token();
         const identifier_name = self.source[identifier.start .. identifier.start + identifier.len];
         try self.consume(.EQUAL);
         try self.parse_expression();
         try self.consume(.SEMICOLON);
-        try self.store_name(identifier_name);
+        if (self.scope_depth == 0) {
+            try self.store_global(identifier_name);
+        } else {
+            try self.store_local(identifier_name);
+        }
     }
 
     fn parse_expression_statement(self: *Parser) !void {
@@ -197,7 +259,11 @@ pub const Parser = struct {
     fn parse_identifier(self: *Parser) !void {
         const identifier = self.previous_token();
         const identifier_name = self.source[identifier.start .. identifier.start + identifier.len];
-        try self.load_name(identifier_name);
+        if (self.scope_depth == 0) {
+            try self.load_global(identifier_name);
+        } else {
+            try self.load_variable(identifier_name);
+        }
     }
     fn parse_nil(self: *Parser) !void {
         try self.emit_constant(LoxValue{ .NIL = 0 });
@@ -231,24 +297,68 @@ pub const Parser = struct {
         try self.emit_bytes(@intFromEnum(OpCode.LOAD_CONST), constant_index);
     }
 
-    fn add_name(self: *Parser, name: []u8) !u8 {
-        const names = &self.chunk.varnames;
-        try names.append(name);
-        if (names.items.len >= 256) {
-            return error.TooManyConstants;
+    fn add_global(self: *Parser, identifier: []u8) !u8 {
+        const varnames = &self.chunk.varnames;
+        try varnames.append(identifier);
+        if (varnames.items.len > 256) {
+            return error.TooManyGlobals;
         }
-        return @intCast(names.items.len - 1);
+        return @intCast(varnames.items.len - 1);
     }
 
-    fn store_name(self: *Parser, value: []u8) !void {
-        const name_index = try self.add_name(value);
-        try self.emit_bytes(@intFromEnum(OpCode.STORE_NAME), name_index);
+    fn store_global(self: *Parser, identifier: []u8) !void {
+        const global_index = try self.add_global(identifier);
+        try self.emit_bytes(@intFromEnum(OpCode.STORE_GLOBAL), global_index);
     }
 
-    fn load_name(self: *Parser, value: []u8) !void {
+    fn load_global(self: *Parser, identifier: []u8) !void {
         // TODO: add deduplication of names in the names list.
-        const name_index = try self.add_name(value);
-        try self.emit_bytes(@intFromEnum(OpCode.LOAD_NAME), name_index);
+        const global_index = try self.add_global(identifier);
+        try self.emit_bytes(@intFromEnum(OpCode.LOAD_GLOBAL), global_index);
+    }
+
+    fn add_local(self: *Parser, identifier: []u8) !u8 {
+        if (try self.find_local(identifier, true) != -1) {
+            return error.RedeclaredLocal;
+        }
+
+        try self.locals.append(Local{
+            .identifier = identifier,
+            .scope_depth = self.scope_depth,
+        });
+        if (self.locals.items.len > 256) {
+            return error.TooManyLocals;
+        }
+        return @intCast(self.locals.items.len - 1);
+    }
+
+    fn store_local(self: *Parser, identifier: []u8) !void {
+        const local_index = try self.add_local(identifier);
+        try self.emit_bytes(@intFromEnum(OpCode.STORE_LOCAL), local_index);
+    }
+
+    fn find_local(self: *Parser, identifier: []u8, same_scope: bool) !isize {
+        var index = self.locals.items.len;
+        while (index > 0) {
+            index -= 1;
+            const local = self.locals.items[index];
+            if (same_scope and local.scope_depth != self.scope_depth) {
+                continue;
+            }
+            if (std.mem.eql(u8, local.identifier, identifier)) {
+                return @intCast(index);
+            }
+        }
+        return -1;
+    }
+
+    fn load_variable(self: *Parser, identifier: []u8) !void {
+        const local_index = try self.find_local(identifier, false);
+        if (local_index == -1) {
+            try self.load_global(identifier);
+            return;
+        }
+        try self.emit_bytes(@intFromEnum(OpCode.LOAD_LOCAL), @intCast(local_index));
     }
 };
 
@@ -262,6 +372,7 @@ const ParseRule = struct {
 pub const ParseRules = std.AutoHashMap(TokenType, ParseRule);
 
 const ParseRuleTuple = struct { TokenType, ParseRule };
+// TODO: Trying to infer array length with `[_]` doesn't work right now, zig bug
 pub const PARSE_RULES: [14]ParseRuleTuple = .{
     .{
         TokenType.PLUS,

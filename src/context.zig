@@ -7,12 +7,15 @@ const LoxObject = types.LoxObject;
 
 pub const GlobalContext = struct {
     al: std.mem.Allocator,
+    debug: bool,
     objects: std.ArrayList(*LoxObject),
     strings: *HashTable,
 
-    pub fn init(al: std.mem.Allocator) !*GlobalContext {
+    pub fn init(al: std.mem.Allocator, debug: bool) !*GlobalContext {
         var store = try al.create(GlobalContext);
+        errdefer store.free();
         store.al = al;
+        store.debug = debug;
         store.objects = std.ArrayList(*LoxObject).init(al);
         store.strings = try HashTable.init(al, .{});
         return store;

@@ -17,8 +17,10 @@ pub const OpCode = enum(u8) {
     POP,
     PRINT,
     LOAD_CONST,
-    STORE_NAME,
-    LOAD_NAME,
+    STORE_GLOBAL,
+    LOAD_GLOBAL,
+    STORE_LOCAL,
+    LOAD_LOCAL,
     // TODO: use a BINARY_OP opcode
     ADD,
     SUBTRACT,
@@ -32,6 +34,7 @@ pub const OpCode = enum(u8) {
 
 pub fn compile(ctx: *GlobalContext, tokens: []tokenizer.Token, source: []u8) !*Chunk {
     const chunk = try Chunk.create(ctx.al);
+    errdefer chunk.free();
 
     var parse_rules = parse.ParseRules.init(ctx.al);
     defer parse_rules.deinit();
@@ -41,14 +44,8 @@ pub fn compile(ctx: *GlobalContext, tokens: []tokenizer.Token, source: []u8) !*C
         try parse_rules.put(token_type, rule);
     }
 
-    var parser = Parser{
-        .current = 0,
-        .tokens = tokens,
-        .source = source,
-        .chunk = chunk,
-        .parse_rules = parse_rules,
-        .ctx = ctx,
-    };
+    var parser = Parser.init(ctx, source, tokens, chunk, parse_rules);
+    defer parser.deinit();
 
     while (parser.peek().type != TokenType.EOF) {
         try parser.parse_declaration();

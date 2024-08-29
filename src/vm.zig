@@ -16,6 +16,7 @@ pub const VM = struct {
     chunk: *parse.Chunk,
     stack: parse.ConstantStack,
     globals: *HashTable,
+    local_indices: std.ArrayList(usize),
     ip: [*]u8,
 
     pub fn create(ctx: *GlobalContext, chunk: *parse.Chunk) !*VM {
@@ -24,6 +25,7 @@ pub const VM = struct {
         vm.chunk = chunk;
         vm.stack = parse.ConstantStack.init(ctx.al);
         vm.globals = try HashTable.init(ctx.al, .{ .keys_owned = false });
+        vm.local_indices = std.ArrayList(usize).init(ctx.al);
         vm.ip = chunk.data.items.ptr;
         return vm;
     }
@@ -31,6 +33,7 @@ pub const VM = struct {
     pub fn deinit(self: *VM) void {
         self.globals.deinit();
         self.stack.deinit();
+        self.local_indices.deinit();
         self.ctx.al.destroy(self);
     }
 
@@ -87,25 +90,25 @@ pub const VM = struct {
 
     pub fn interpret(self: *VM, writer: std.io.AnyWriter) !void {
         while (true) {
-            const x = next_byte(self);
+            const x = self.next_byte();
             const opcode: OpCode = @enumFromInt(x);
             switch (opcode) {
                 OpCode.POP => {
                     _ = self.stack.pop();
                 },
                 OpCode.LOAD_CONST => {
-                    const constant_index = next_byte(self);
+                    const constant_index = self.next_byte();
                     try self.stack.append(self.chunk.constants.items[constant_index]);
                 },
                 OpCode.ADD => {
-                    try binary_check(self);
+                    try self.binary_check();
                     const b = self.stack.pop();
                     const a = self.stack.pop();
                     const result = switch (a) {
                         LoxType.NUMBER => LoxValue{ .NUMBER = a.NUMBER + b.NUMBER },
                         LoxType.OBJECT => switch (a.OBJECT.type) {
                             LoxObject.Type.STRING => LoxValue{
-                                .OBJECT = try concatenate_strings(self, a.OBJECT.as_string(), b.OBJECT.as_string()),
+                                .OBJECT = try self.concatenate_strings(a.OBJECT.as_string(), b.OBJECT.as_string()),
                             },
                         },
                         else => return error.RuntimeError,
@@ -113,36 +116,36 @@ pub const VM = struct {
                     try self.stack.append(result);
                 },
                 OpCode.SUBTRACT => {
-                    try binary_number_check(self);
+                    try self.binary_number_check();
                     const b = self.stack.pop();
                     const a = self.stack.pop();
                     try self.stack.append(LoxValue{ .NUMBER = a.NUMBER - b.NUMBER });
                 },
                 OpCode.MULTIPLY => {
-                    try binary_number_check(self);
+                    try self.binary_number_check();
                     const b = self.stack.pop();
                     const a = self.stack.pop();
                     try self.stack.append(LoxValue{ .NUMBER = a.NUMBER * b.NUMBER });
                 },
                 OpCode.DIVIDE => {
-                    try binary_number_check(self);
+                    try self.binary_number_check();
                     const b = self.stack.pop();
                     const a = self.stack.pop();
                     try self.stack.append(LoxValue{ .NUMBER = a.NUMBER / b.NUMBER });
                 },
                 OpCode.NEGATE => {
-                    try unary_number_check(self);
+                    try self.unary_number_check();
                     const number = self.stack.pop();
                     try self.stack.append(LoxValue{ .NUMBER = -number.NUMBER });
                 },
                 OpCode.GREATER_THAN => {
-                    try binary_number_check(self);
+                    try self.binary_number_check();
                     const b = self.stack.pop();
                     const a = self.stack.pop();
                     try self.stack.append(LoxValue{ .BOOLEAN = a.NUMBER > b.NUMBER });
                 },
                 OpCode.LESS_THAN => {
-                    try binary_number_check(self);
+                    try self.binary_number_check();
                     const b = self.stack.pop();
                     const a = self.stack.pop();
                     try self.stack.append(LoxValue{ .BOOLEAN = a.NUMBER < b.NUMBER });
@@ -172,14 +175,14 @@ pub const VM = struct {
                     _ = try writer.write(formatted_constant);
                     _ = try writer.writeByte('\n');
                 },
-                OpCode.STORE_NAME => {
-                    const global_index = next_byte(self);
+                OpCode.STORE_GLOBAL => {
+                    const global_index = self.next_byte();
                     const global_name = self.chunk.varnames.items[global_index];
                     try self.globals.insert(global_name, self.stack.getLast());
                     _ = self.stack.pop();
                 },
-                OpCode.LOAD_NAME => {
-                    const global_index = next_byte(self);
+                OpCode.LOAD_GLOBAL => {
+                    const global_index = self.next_byte();
                     const global_name = self.chunk.varnames.items[global_index];
                     const _value = try self.globals.find(global_name);
                     if (_value) |value| {
@@ -188,8 +191,30 @@ pub const VM = struct {
                         return error.UndefinedVariable;
                     }
                 },
+                OpCode.STORE_LOCAL => {
+                    // Current value on the stack, we store its position as
+                    // the local variable's position
+                    const stack_top = self.stack.items.len - 1;
+
+                    const local_index = self.next_byte();
+                    // `local_index` here may be at 1 value above the top of the stack.
+                    // But that's okay, `insert` supports that and treats it as append.
+                    try self.local_indices.insert(local_index, stack_top);
+                },
+                OpCode.LOAD_LOCAL => {
+                    const local_index = self.next_byte();
+                    const local = self.stack.items[@intCast(local_index)];
+                    try self.stack.append(local);
+                },
                 OpCode.EXIT => {
                     if (self.stack.items.len != 0) {
+                        if (self.ctx.debug) {
+                            std.debug.print("------- Stack ------\n", .{});
+                            for (self.stack.items) |item| {
+                                std.debug.print("{}\n", .{item});
+                            }
+                            std.debug.print("----- End Stack ----\n", .{});
+                        }
                         return error.StackNotEmpty;
                     }
                     break;

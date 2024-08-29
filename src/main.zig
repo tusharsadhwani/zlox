@@ -27,7 +27,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
         }
     }
 
-    var ctx = try GlobalContext.init(al);
+    var ctx = try GlobalContext.init(al, debug);
     defer ctx.free();
 
     const chunk = try compiler.compile(ctx, tokens.items, source);
@@ -47,10 +47,15 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
                     std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), constant_index, formatted_constant });
                     index += 2;
                 },
-                compiler.OpCode.STORE_NAME, compiler.OpCode.LOAD_NAME => {
+                compiler.OpCode.STORE_GLOBAL, compiler.OpCode.LOAD_GLOBAL => {
                     const name_index = chunk.data.items[index + 1];
                     const name = chunk.varnames.items[name_index];
                     std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), name_index, name });
+                    index += 2;
+                },
+                compiler.OpCode.STORE_LOCAL, compiler.OpCode.LOAD_LOCAL => {
+                    const name_index = chunk.data.items[index + 1];
+                    std.debug.print("{s:<15} {d:3}\n", .{ @tagName(opcode), name_index });
                     index += 2;
                 },
                 else => {
@@ -70,7 +75,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // defer std.debug.assert(gpa.deinit() == .ok);
+    defer std.debug.assert(gpa.deinit() == .ok);
     const al = gpa.allocator();
 
     const argv = try std.process.argsAlloc(al);
@@ -133,4 +138,24 @@ test {
     defer al.free(source);
     try run(al, source, output.writer().any(), false);
     try std.testing.expectEqualStrings("true\n", output.items);
+}
+
+test "Redeclared local should crash" {
+    const al = std.testing.allocator;
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "{{var z = 10; var z = 20;}}", .{});
+    defer al.free(source);
+    run(al, source, output.writer().any(), false) catch |err| {
+        try std.testing.expectEqual(error.RedeclaredLocal, err);
+    };
+}
+
+test "No crash in empty first scope" {
+    const al = std.testing.allocator;
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "{{}}", .{});
+    defer al.free(source);
+    try run(al, source, output.writer().any(), false);
 }

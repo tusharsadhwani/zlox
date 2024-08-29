@@ -4,6 +4,8 @@ pub const TokenType = enum {
     UNKNOWN,
     PRINT,
     VAR,
+    LBRACE,
+    RBRACE,
     SEMICOLON,
     PLUS,
     MINUS,
@@ -100,6 +102,7 @@ fn tokenize_comment(source: []u8, start: usize) Token {
 
 pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
     var tokens = std.ArrayList(Token).init(al);
+    errdefer tokens.deinit();
 
     var index: usize = 0;
     while (index < source.len) {
@@ -110,8 +113,11 @@ pub fn tokenize(al: std.mem.Allocator, source: []u8) !std.ArrayList(Token) {
         }
 
         const token = switch (char) {
-            // TOOD: Add += -= etc.
+            // TODO: add parens
             ';' => Token{ .type = TokenType.SEMICOLON, .start = index, .len = 1 },
+            '{' => Token{ .type = TokenType.LBRACE, .start = index, .len = 1 },
+            '}' => Token{ .type = TokenType.RBRACE, .start = index, .len = 1 },
+            // TODO: Add += -= etc.
             '+' => Token{ .type = TokenType.PLUS, .start = index, .len = 1 },
             '-' => Token{ .type = TokenType.MINUS, .start = index, .len = 1 },
             '*' => Token{ .type = TokenType.STAR, .start = index, .len = 1 },
