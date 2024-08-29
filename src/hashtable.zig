@@ -99,6 +99,9 @@ pub const HashTable = struct {
         }
         return entry.key;
     }
+    pub fn has_key(self: *HashTable, key: []u8) !bool {
+        return try self.find_key(key) != null;
+    }
 
     // TODO: remove anyerror, a zig bug isn't letting me dd that right now
     // error: unable to resolve inferred error set

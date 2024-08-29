@@ -4,18 +4,27 @@ print x;
 {
   var x = 2;
   var y = 3;
+  var z = 6;
   print x;
-  print y;
   {
     var y = 4;
+    var z = 10;
     print x;
     print y;
+    y = y + 1;
+    print y;
+    x = x + y;
+    z = x + 1;
+    print x;
+    print z;
   }
+  print x;
+  print y;
+  print z;
 }
 print x;
 print g;
-// TODO: remove the `var` here
-var g = 6;
+g = 6;
 print g;
 
 var m = 7;
@@ -27,7 +36,7 @@ var m = 7;
 {
   var w = 10;
   {
-    var w = w + 1;
+    var w = w + 1; // TODO: this should error
     print w;
   }
   print w;

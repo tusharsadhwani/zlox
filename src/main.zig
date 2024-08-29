@@ -39,7 +39,7 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
         while (index < chunk.data.items.len) {
             const opcode: compiler.OpCode = @enumFromInt(chunk.data.items[index]);
             switch (opcode) {
-                compiler.OpCode.LOAD_CONST => {
+                compiler.OpCode.GET_CONST => {
                     const constant_index = chunk.data.items[index + 1];
                     const constant = chunk.constants.items[constant_index];
                     const formatted_constant = try VM.format_constant(al, constant);
@@ -47,13 +47,13 @@ pub fn run(al: std.mem.Allocator, source: []u8, writer: std.io.AnyWriter, debug:
                     std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), constant_index, formatted_constant });
                     index += 2;
                 },
-                compiler.OpCode.STORE_GLOBAL, compiler.OpCode.LOAD_GLOBAL => {
+                compiler.OpCode.DECLARE_GLOBAL, compiler.OpCode.GET_GLOBAL, compiler.OpCode.SET_GLOBAL => {
                     const name_index = chunk.data.items[index + 1];
                     const name = chunk.varnames.items[name_index];
                     std.debug.print("{s:<15} {d:3} ({s})\n", .{ @tagName(opcode), name_index, name });
                     index += 2;
                 },
-                compiler.OpCode.STORE_LOCAL, compiler.OpCode.LOAD_LOCAL => {
+                compiler.OpCode.SET_LOCAL, compiler.OpCode.GET_LOCAL => {
                     const name_index = chunk.data.items[index + 1];
                     std.debug.print("{s:<15} {d:3}\n", .{ @tagName(opcode), name_index });
                     index += 2;
@@ -158,4 +158,37 @@ test "No crash in empty first scope" {
     const source = try std.fmt.allocPrint(al, "{{}}", .{});
     defer al.free(source);
     try run(al, source, output.writer().any(), false);
+}
+
+test "Invalid assignment target" {
+    const al = std.testing.allocator;
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "a + b = c + d;", .{});
+    defer al.free(source);
+    run(al, source, output.writer().any(), false) catch |err| {
+        try std.testing.expectEqual(error.InvalidAssignmentTarget, err);
+    };
+}
+
+test "Assigning undeclared variable: global" {
+    const al = std.testing.allocator;
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "a = 1;", .{});
+    defer al.free(source);
+    run(al, source, output.writer().any(), false) catch |err| {
+        try std.testing.expectEqual(error.UndeclaredVariable, err);
+    };
+}
+
+test "Assigning undeclared variable: local" {
+    const al = std.testing.allocator;
+    var output = std.ArrayList(u8).init(al);
+    defer output.deinit();
+    const source = try std.fmt.allocPrint(al, "{{a = 1;}}", .{});
+    defer al.free(source);
+    run(al, source, output.writer().any(), false) catch |err| {
+        try std.testing.expectEqual(error.UndeclaredVariable, err);
+    };
 }

@@ -116,19 +116,24 @@ pub const Parser = struct {
         var token = self.read_token();
         const parse_rule = self.parse_rules.get(token.type) orelse return error.InvalidSyntax;
         const prefix_rule = parse_rule.prefix orelse return error.ExpressionExpected;
-        try prefix_rule(self);
+        // TODO: maybe `can_assign` can be stored in `Parser` instead of passing everywhere
+        const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.ASSIGNMENT);
+        try prefix_rule(self, can_assign);
+
+        if (!can_assign and self.match(TokenType.EQUAL)) {
+            return error.InvalidAssignmentTarget;
+        }
 
         while (true) {
             const next_rule = self.parse_rules.get(self.peek().type) orelse return error.InvalidSyntax;
             const next_precedence = next_rule.precedence;
-            if (@intFromEnum(precedence) <= @intFromEnum(next_precedence)) {
-                token = self.read_token();
-                const next_parse_rule = self.parse_rules.get(token.type) orelse return error.InvalidSyntax;
-                const infix_rule = next_parse_rule.infix orelse return error.ExpressionExpected;
-                try infix_rule(self);
-            } else {
+            if (@intFromEnum(precedence) > @intFromEnum(next_precedence)) {
                 break;
             }
+            token = self.read_token();
+            const next_parse_rule = self.parse_rules.get(token.type) orelse return error.InvalidSyntax;
+            const infix_rule = next_parse_rule.infix orelse return error.ExpressionExpected;
+            try infix_rule(self, can_assign);
         }
     }
 
@@ -190,13 +195,14 @@ pub const Parser = struct {
         try self.consume(.IDENTIFIER);
         const identifier = self.previous_token();
         const identifier_name = self.source[identifier.start .. identifier.start + identifier.len];
+        // TODO: declaration without value
         try self.consume(.EQUAL);
         try self.parse_expression();
         try self.consume(.SEMICOLON);
         if (self.scope_depth == 0) {
-            try self.store_global(identifier_name);
+            try self.declare_global(identifier_name);
         } else {
-            try self.store_local(identifier_name);
+            try self.declare_local(identifier_name);
         }
     }
 
@@ -210,7 +216,8 @@ pub const Parser = struct {
         try self.parse_precedence(Precedence.ASSIGNMENT);
     }
 
-    fn parse_unary(self: *Parser) !void {
+    fn parse_unary(self: *Parser, can_assign: bool) !void {
+        _ = can_assign;
         const operator = self.previous_token().type;
         const parse_rule = self.parse_rules.get(operator) orelse return error.OperatorNotFound;
         try self.parse_precedence(@enumFromInt(@intFromEnum(parse_rule.precedence) + 1));
@@ -219,7 +226,8 @@ pub const Parser = struct {
             else => unreachable,
         };
     }
-    fn parse_binary(self: *Parser) !void {
+    fn parse_binary(self: *Parser, can_assign: bool) !void {
+        _ = can_assign;
         const operator = self.previous_token().type;
         const parse_rule = self.parse_rules.get(operator) orelse return error.OperatorNotFound;
         try self.parse_precedence(@enumFromInt(@intFromEnum(parse_rule.precedence) + 1));
@@ -234,7 +242,8 @@ pub const Parser = struct {
             else => unreachable,
         };
     }
-    fn parse_number(self: *Parser) !void {
+    fn parse_number(self: *Parser, can_assign: bool) !void {
+        _ = can_assign;
         const num_token = self.previous_token();
         const number = try std.fmt.parseFloat(
             std.meta.FieldType(LoxValue, .NUMBER),
@@ -242,7 +251,8 @@ pub const Parser = struct {
         );
         try self.emit_constant(LoxValue{ .NUMBER = number });
     }
-    fn parse_string(self: *Parser) !void {
+    fn parse_string(self: *Parser, can_assign: bool) !void {
+        _ = can_assign;
         const string_token = self.previous_token();
         // +1 and -1 to remove quotes.
         // TODO This doesn't handle any un-escaping
@@ -250,22 +260,25 @@ pub const Parser = struct {
         const string_object = try LoxObject.allocate_string(self.ctx, string_slice);
         try self.emit_constant(LoxValue{ .OBJECT = string_object });
     }
-    fn parse_boolean(self: *Parser) !void {
+    fn parse_boolean(self: *Parser, can_assign: bool) !void {
+        _ = can_assign;
         const num_token = self.previous_token();
         try self.emit_constant(LoxValue{
             .BOOLEAN = if (num_token.type == TokenType.TRUE) true else false,
         });
     }
-    fn parse_identifier(self: *Parser) !void {
+    fn parse_identifier(self: *Parser, can_assign: bool) !void {
         const identifier = self.previous_token();
         const identifier_name = self.source[identifier.start .. identifier.start + identifier.len];
-        if (self.scope_depth == 0) {
-            try self.load_global(identifier_name);
+        if (can_assign and self.match(TokenType.EQUAL)) {
+            try self.parse_expression();
+            try self.set_variable(identifier_name);
         } else {
-            try self.load_variable(identifier_name);
+            try self.get_variable(identifier_name);
         }
     }
-    fn parse_nil(self: *Parser) !void {
+    fn parse_nil(self: *Parser, can_assign: bool) !void {
+        _ = can_assign;
         try self.emit_constant(LoxValue{ .NIL = 0 });
     }
     pub fn end(self: *Parser) !void {
@@ -292,9 +305,7 @@ pub const Parser = struct {
 
     fn emit_constant(self: *Parser, value: LoxValue) !void {
         const constant_index = try self.add_constant(value);
-        // TODO: member assignment code should go right here.
-        // Refer to section 21.4 for the changes here when implementing objects.
-        try self.emit_bytes(@intFromEnum(OpCode.LOAD_CONST), constant_index);
+        try self.emit_bytes(@intFromEnum(OpCode.GET_CONST), constant_index);
     }
 
     fn add_global(self: *Parser, identifier: []u8) !u8 {
@@ -306,15 +317,20 @@ pub const Parser = struct {
         return @intCast(varnames.items.len - 1);
     }
 
-    fn store_global(self: *Parser, identifier: []u8) !void {
+    fn declare_global(self: *Parser, identifier: []u8) !void {
         const global_index = try self.add_global(identifier);
-        try self.emit_bytes(@intFromEnum(OpCode.STORE_GLOBAL), global_index);
+        try self.emit_bytes(@intFromEnum(OpCode.DECLARE_GLOBAL), global_index);
     }
 
-    fn load_global(self: *Parser, identifier: []u8) !void {
+    fn set_global(self: *Parser, identifier: []u8) !void {
+        const global_index = try self.add_global(identifier);
+        try self.emit_bytes(@intFromEnum(OpCode.SET_GLOBAL), global_index);
+    }
+
+    fn get_global(self: *Parser, identifier: []u8) !void {
         // TODO: add deduplication of names in the names list.
         const global_index = try self.add_global(identifier);
-        try self.emit_bytes(@intFromEnum(OpCode.LOAD_GLOBAL), global_index);
+        try self.emit_bytes(@intFromEnum(OpCode.GET_GLOBAL), global_index);
     }
 
     fn add_local(self: *Parser, identifier: []u8) !u8 {
@@ -332,9 +348,25 @@ pub const Parser = struct {
         return @intCast(self.locals.items.len - 1);
     }
 
-    fn store_local(self: *Parser, identifier: []u8) !void {
+    fn declare_local(self: *Parser, identifier: []u8) !void {
         const local_index = try self.add_local(identifier);
-        try self.emit_bytes(@intFromEnum(OpCode.STORE_LOCAL), local_index);
+        try self.emit_bytes(@intFromEnum(OpCode.SET_LOCAL), local_index);
+    }
+
+    fn set_local(self: *Parser, identifier: []u8) !void {
+        const local_index = try self.find_local(identifier, false);
+        if (local_index == -1) {
+            return error.UndeclaredVariable;
+        }
+        try self.emit_bytes(@intFromEnum(OpCode.SET_LOCAL), @intCast(local_index));
+    }
+
+    fn set_variable(self: *Parser, identifier: []u8) !void {
+        if (self.scope_depth == 0) {
+            try self.set_global(identifier);
+        } else {
+            try self.set_local(identifier);
+        }
     }
 
     fn find_local(self: *Parser, identifier: []u8, same_scope: bool) !isize {
@@ -352,17 +384,17 @@ pub const Parser = struct {
         return -1;
     }
 
-    fn load_variable(self: *Parser, identifier: []u8) !void {
+    fn get_variable(self: *Parser, identifier: []u8) !void {
         const local_index = try self.find_local(identifier, false);
         if (local_index == -1) {
-            try self.load_global(identifier);
+            try self.get_global(identifier);
             return;
         }
-        try self.emit_bytes(@intFromEnum(OpCode.LOAD_LOCAL), @intCast(local_index));
+        try self.emit_bytes(@intFromEnum(OpCode.GET_LOCAL), @intCast(local_index));
     }
 };
 
-const ParseFn = *const fn (*Parser) anyerror!void;
+const ParseFn = *const fn (*Parser, bool) anyerror!void;
 
 const ParseRule = struct {
     prefix: ?ParseFn,

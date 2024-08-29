@@ -96,7 +96,7 @@ pub const VM = struct {
                 OpCode.POP => {
                     _ = self.stack.pop();
                 },
-                OpCode.LOAD_CONST => {
+                OpCode.GET_CONST => {
                     const constant_index = self.next_byte();
                     try self.stack.append(self.chunk.constants.items[constant_index]);
                 },
@@ -175,33 +175,43 @@ pub const VM = struct {
                     _ = try writer.write(formatted_constant);
                     _ = try writer.writeByte('\n');
                 },
-                OpCode.STORE_GLOBAL => {
+                OpCode.DECLARE_GLOBAL => {
                     const global_index = self.next_byte();
                     const global_name = self.chunk.varnames.items[global_index];
                     try self.globals.insert(global_name, self.stack.getLast());
                     _ = self.stack.pop();
                 },
-                OpCode.LOAD_GLOBAL => {
+                OpCode.SET_GLOBAL => {
+                    const global_index = self.next_byte();
+                    const global_name = self.chunk.varnames.items[global_index];
+                    if (!try self.globals.has_key(global_name)) {
+                        return error.UndeclaredVariable;
+                    }
+                    try self.globals.insert(global_name, self.stack.getLast());
+                    // No popping, assignments return the assigned value.
+                },
+                OpCode.GET_GLOBAL => {
                     const global_index = self.next_byte();
                     const global_name = self.chunk.varnames.items[global_index];
                     const _value = try self.globals.find(global_name);
                     if (_value) |value| {
                         try self.stack.append(value);
                     } else {
-                        return error.UndefinedVariable;
+                        return error.UndeclaredVariable;
                     }
                 },
-                OpCode.STORE_LOCAL => {
-                    // Current value on the stack, we store its position as
-                    // the local variable's position
+                OpCode.SET_LOCAL => {
                     const stack_top = self.stack.items.len - 1;
-
                     const local_index = self.next_byte();
-                    // `local_index` here may be at 1 value above the top of the stack.
-                    // But that's okay, `insert` supports that and treats it as append.
-                    try self.local_indices.insert(local_index, stack_top);
+                    if (local_index == self.local_indices.items.len) {
+                        // Current value on the stack, we store its position as
+                        // the local variable's position
+                        try self.local_indices.append(stack_top);
+                    } else {
+                        self.stack.items[local_index] = self.stack.items[stack_top];
+                    }
                 },
-                OpCode.LOAD_LOCAL => {
+                OpCode.GET_LOCAL => {
                     const local_index = self.next_byte();
                     const local = self.stack.items[@intCast(local_index)];
                     try self.stack.append(local);
