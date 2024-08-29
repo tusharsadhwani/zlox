@@ -16,7 +16,6 @@ pub const VM = struct {
     chunk: *parse.Chunk,
     stack: parse.ConstantStack,
     globals: *HashTable,
-    local_indices: std.ArrayList(usize),
     ip: [*]u8,
 
     pub fn create(ctx: *GlobalContext, chunk: *parse.Chunk) !*VM {
@@ -25,7 +24,6 @@ pub const VM = struct {
         vm.chunk = chunk;
         vm.stack = parse.ConstantStack.init(ctx.al);
         vm.globals = try HashTable.init(ctx.al, .{ .keys_owned = false });
-        vm.local_indices = std.ArrayList(usize).init(ctx.al);
         vm.ip = chunk.data.items.ptr;
         return vm;
     }
@@ -33,7 +31,6 @@ pub const VM = struct {
     pub fn deinit(self: *VM) void {
         self.globals.deinit();
         self.stack.deinit();
-        self.local_indices.deinit();
         self.ctx.al.destroy(self);
     }
 
@@ -203,13 +200,7 @@ pub const VM = struct {
                 OpCode.SET_LOCAL => {
                     const stack_top = self.stack.items.len - 1;
                     const local_index = self.next_byte();
-                    if (local_index == self.local_indices.items.len) {
-                        // Current value on the stack, we store its position as
-                        // the local variable's position
-                        try self.local_indices.append(stack_top);
-                    } else {
-                        self.stack.items[local_index] = self.stack.items[stack_top];
-                    }
+                    self.stack.items[local_index] = self.stack.items[stack_top];
                 },
                 OpCode.GET_LOCAL => {
                     const local_index = self.next_byte();
