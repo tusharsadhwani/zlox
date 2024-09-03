@@ -1,16 +1,11 @@
-const std = @import("std");
 
 const tokenizer = @import("tokenizer.zig");
 const TokenType = tokenizer.TokenType;
 const parse = @import("parse.zig");
 const Chunk = parse.Chunk;
 const Parser = parse.Parser;
-const Precedence = parse.Precedence;
-const HashTable = @import("hashtable.zig").HashTable;
 const GlobalContext = @import("context.zig").GlobalContext;
 const types = @import("types.zig");
-const LoxValue = types.LoxValue;
-const LoxObject = types.LoxObject;
 
 pub const OpCode = enum(u8) {
     EXIT,

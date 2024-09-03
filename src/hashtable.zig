@@ -1,7 +1,5 @@
 const std = @import("std");
-const compiler = @import("compiler.zig");
 const types = @import("types.zig");
-const LoxObject = types.LoxObject;
 const LoxValue = types.LoxValue;
 
 // Denotes uninitialized value.

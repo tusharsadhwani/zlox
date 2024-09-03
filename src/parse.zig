@@ -2,15 +2,12 @@ const std = @import("std");
 
 const GlobalContext = @import("context.zig").GlobalContext;
 const tokenizer = @import("tokenizer.zig");
-const Token = tokenizer.Token;
 const TokenType = tokenizer.TokenType;
 const compiler = @import("compiler.zig");
 const OpCode = compiler.OpCode;
 const types = @import("types.zig");
 const LoxValue = types.LoxValue;
-const LoxType = types.LoxType;
 const LoxObject = types.LoxObject;
-const LoxString = types.LoxString;
 
 pub const ConstantStack = std.ArrayList(LoxValue);
 
